@@ -5,8 +5,9 @@ from typing import Literal
 from pydantic import Field, RedisDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_REPO_ROOT = Path(__file__).resolve().parents[4]
-_API_ROOT = Path(__file__).resolve().parents[3]
+# config.py: .../apps/api/src/invision_api/core/config.py
+_API_ROOT = Path(__file__).resolve().parents[3]  # .../apps/api
+_REPO_ROOT = _API_ROOT.parent.parent  # monorepo root (parent of apps/)
 
 
 class Settings(BaseSettings):

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, apiFetchCached, bustApiCache } from "@/lib/api-client";
 import { contactSchema } from "@/lib/validation";
 import { z } from "zod";
 
@@ -22,7 +22,10 @@ export default function ContactPage() {
   useEffect(() => {
     async function load() {
       try {
-        const app = await apiFetch<{ sections: Record<string, { payload: unknown }> }>("/candidates/me/application");
+        const app = await apiFetchCached<{ sections: Record<string, { payload: unknown }> }>(
+          "/candidates/me/application",
+          2 * 60 * 1000,
+        );
         const p = app.sections.contact?.payload as Form | undefined;
         if (p) reset(p);
       } catch {
@@ -39,6 +42,7 @@ export default function ContactPage() {
         method: "PATCH",
         json: { payload: data },
       });
+      bustApiCache("/candidates/me");
       setMsg("Сохранено.");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Не удалось сохранить");

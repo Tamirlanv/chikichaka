@@ -1,0 +1,108 @@
+.root {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.track,
+.trackTabs {
+  position: relative;
+  background: #f1f1f1;
+  border-radius: 100px;
+  /* 2px зазор между внешней подложкой и активной зелёной капсулой */
+  padding: 2px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: stretch;
+  gap: 24px;
+  width: max-content;
+  max-width: 100%;
+}
+
+.trackTabs {
+  gap: 24px;
+  flex-wrap: nowrap;
+}
+
+@media (max-width: 1024px) {
+  .trackTabs {
+    gap: 16px;
+  }
+}
+
+.indicator {
+  position: absolute;
+  left: 0;
+  top: 0;
+  background: #98da00;
+  border-radius: 100px;
+  box-sizing: border-box;
+  transition:
+    transform 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1;
+  pointer-events: none;
+  will-change: transform, width, height;
+}
+
+.option {
+  position: relative;
+  z-index: 2;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 14px;
+  letter-spacing: -0.42px;
+  color: #626262;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: color 0.25s ease;
+  border-radius: 100px;
+}
+
+.option:hover:not(:disabled) {
+  color: #262626;
+}
+
+.option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.optionActive {
+  color: #fff;
+  z-index: 3;
+}
+
+@media (max-width: 768px) {
+  .track,
+  .trackTabs {
+    flex-wrap: wrap;
+    width: 100%;
+    gap: 8px;
+    border-radius: 16px;
+    padding: 8px;
+  }
+
+  .indicator {
+    display: none;
+  }
+
+  .option {
+    flex: 1 1 auto;
+    min-width: min(140px, 100%);
+    justify-content: center;
+    text-align: center;
+    background: #f1f1f1;
+    border-radius: 100px;
+  }
+
+  .optionActive {
+    background: #98da00;
+    color: #fff;
+  }
+}

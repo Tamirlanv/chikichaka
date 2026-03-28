@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, apiFetchCached, bustApiCache } from "@/lib/api-client";
 import { educationSchema } from "@/lib/validation";
 import { z } from "zod";
 
@@ -28,7 +28,7 @@ export default function EducationPage() {
   useEffect(() => {
     async function load() {
       try {
-        const app = await apiFetch<{
+        const app = await apiFetchCached<{
           sections: Record<string, { payload: unknown }>;
           education_records: {
             institution_name: string;
@@ -38,7 +38,7 @@ export default function EducationPage() {
             end_date?: string | null;
             is_current: boolean;
           }[];
-        }>("/candidates/me/application");
+        }>("/candidates/me/application", 2 * 60 * 1000);
         const p = app.sections.education?.payload as Form | undefined;
         if (p?.entries?.length) {
           reset(p);
@@ -78,6 +78,7 @@ export default function EducationPage() {
         method: "PATCH",
         json: { payload: cleaned },
       });
+      bustApiCache("/candidates/me");
       setMsg("Сохранено.");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Не удалось сохранить");
@@ -90,7 +91,7 @@ export default function EducationPage() {
         Образование
       </h1>
       {fields.map((field, index) => (
-        <div key={field.id} className="card grid" style={{ background: "rgba(0,0,0,0.2)" }}>
+        <div key={field.id} className="card grid card--nested">
           <div>
             <label className="label">Учебное заведение</label>
             <input className="input" {...register(`entries.${index}.institution_name` as const)} />

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
-import { apiFetch, ApiError } from "@/lib/api-client";
+import { apiFetch, apiFetchCached, bustApiCache, ApiError } from "@/lib/api-client";
 import { StageTracker } from "@/components/StageTracker";
 import {
   applicationStageRu,
@@ -42,8 +42,8 @@ function DashboardInner() {
     setErr(null);
     try {
       const [m, d] = await Promise.all([
-        apiFetch<Me>("/auth/me"),
-        apiFetch<DashboardSummary>("/candidates/me/dashboard-summary"),
+        apiFetchCached<Me>("/auth/me", 2 * 60 * 1000),
+        apiFetchCached<DashboardSummary>("/candidates/me/dashboard-summary", 5 * 60 * 1000),
       ]);
       setMe(m);
       setDash(d);
@@ -64,6 +64,7 @@ function DashboardInner() {
     setVerifyMsg(null);
     try {
       await apiFetch("/auth/verify-email", { method: "POST", json: { code } });
+      bustApiCache("/auth/me");
       setVerifyMsg("Email подтверждён.");
       setCode("");
       await load();
@@ -94,9 +95,9 @@ function DashboardInner() {
       {welcome && <div className="card">Добро пожаловать — аккаунт готов.</div>}
 
       <div className="card">
-        <h1 className="h1" style={{ fontSize: 22 }}>
+        <h2 className="h2" style={{ marginBottom: 8 }}>
           Здравствуйте, {dash.candidate_name}
-        </h1>
+        </h2>
         <p className="muted" style={{ margin: 0 }}>
           Вы вошли как {me.user.email}
           {me.user.email_verified ? " · email подтверждён" : " · email не подтверждён"}
@@ -123,7 +124,7 @@ function DashboardInner() {
       <div className="card grid">
         <h2 className="h2">Статус заявления</h2>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "baseline" }}>
-          <span style={{ fontSize: 22, fontWeight: 700 }}>{dash.completion_percentage}%</span>
+          <span className="stat-value">{dash.completion_percentage}%</span>
           <span className="muted">заполнено</span>
           <span className="muted">·</span>
           <span>

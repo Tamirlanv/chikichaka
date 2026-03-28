@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, apiFetchCached, bustApiCache } from "@/lib/api-client";
 import { socialSchema } from "@/lib/validation";
 import { z } from "zod";
 
@@ -25,8 +25,9 @@ export default function SocialStatusPage() {
   useEffect(() => {
     async function load() {
       try {
-        const app = await apiFetch<{ application: { id: string }; sections: Record<string, { payload: unknown }> }>(
+        const app = await apiFetchCached<{ application: { id: string }; sections: Record<string, { payload: unknown }> }>(
           "/candidates/me/application",
+          2 * 60 * 1000,
         );
         setApplicationId(app.application.id);
         const p = app.sections.social_status_cert?.payload as Form | undefined;
@@ -45,6 +46,7 @@ export default function SocialStatusPage() {
         method: "PATCH",
         json: { payload: data },
       });
+      bustApiCache("/candidates/me");
       setMsg("Сохранено.");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Не удалось сохранить");
@@ -70,6 +72,7 @@ export default function SocialStatusPage() {
         setFileMsg(JSON.stringify(data));
         return;
       }
+      bustApiCache("/candidates/me");
       setFileMsg(`Загружено: ${data.original_filename}`);
     } catch (e) {
       setFileMsg(e instanceof Error ? e.message : "Ошибка загрузки");

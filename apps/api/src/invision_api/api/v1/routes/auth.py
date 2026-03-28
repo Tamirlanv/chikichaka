@@ -22,6 +22,8 @@ from invision_api.schemas.auth import (
     CandidateProfilePublic,
     LoginRequest,
     MeResponse,
+    RegisterCompleteRequest,
+    RegisterPendingResponse,
     RegisterRequest,
     TokenResponse,
     UserPublic,
@@ -61,8 +63,8 @@ def _clear_auth_cookies(response: Response) -> None:
     response.delete_cookie("invision_refresh", path="/")
 
 
-@router.post("/register", response_model=TokenResponse)
-def register(response: Response, body: RegisterRequest, db: Session = Depends(get_db)) -> TokenResponse:
+@router.post("/register", response_model=RegisterPendingResponse)
+def register(body: RegisterRequest, db: Session = Depends(get_db)) -> RegisterPendingResponse:
     user = auth_service.register_candidate(
         db,
         email=str(body.email),
@@ -70,6 +72,16 @@ def register(response: Response, body: RegisterRequest, db: Session = Depends(ge
         first_name=body.first_name,
         last_name=body.last_name,
     )
+    return RegisterPendingResponse(user_id=user.id, email=user.email)
+
+
+@router.post("/register/complete", response_model=TokenResponse)
+def register_complete(
+    response: Response,
+    body: RegisterCompleteRequest,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    user = auth_service.verify_email_by_email(db, str(body.email), body.code)
     access, refresh, _jti = auth_service.issue_tokens(user.id)
     _set_auth_cookies(response, access, refresh)
     return TokenResponse(access_token=access, refresh_token=refresh)

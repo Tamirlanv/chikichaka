@@ -1,0 +1,208 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 352px;
+  flex-shrink: 0;
+  animation: slideInRight 0.5s ease-out 0.2s both;
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+  transition:
+    box-shadow 0.25s ease,
+    transform 0.25s ease;
+}
+
+.card:hover {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  transform: translateY(-2px);
+}
+
+.cardTitle {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: -0.6px;
+  color: #262626;
+  margin: 0 0 16px;
+}
+
+.deadlineRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.timer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: -0.48px;
+  color: #262626;
+}
+
+.timerIcon {
+  flex-shrink: 0;
+}
+
+.timerDigits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.timerDigits span {
+  white-space: nowrap;
+}
+
+.circularWrap {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+}
+
+.progressArc {
+  transition: stroke-dashoffset 0.8s ease;
+}
+
+.stepsTitle {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: -0.6px;
+  color: #262626;
+  margin: 0 0 20px;
+}
+
+.stepsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.step {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  min-height: 36px;
+  padding-bottom: 8px;
+}
+
+.step:last-child {
+  padding-bottom: 0;
+}
+
+.dotCol {
+  width: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  position: relative;
+  padding-top: 3px;
+}
+
+.dotCol::after {
+  content: "";
+  position: absolute;
+  top: 18px;
+  bottom: -10px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: repeating-linear-gradient(
+    to bottom,
+    #98da00 0,
+    #98da00 4px,
+    transparent 4px,
+    transparent 10px
+  );
+  opacity: 0.9;
+}
+
+.step:last-child .dotCol::after {
+  display: none;
+}
+
+.stepDot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #e1e1e1;
+  flex-shrink: 0;
+  transition:
+    background 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+.stepActive .stepDot {
+  background: #98da00;
+  box-shadow: 0 0 0 3px rgba(152, 218, 0, 0.25);
+}
+
+.stepText {
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 20px;
+  letter-spacing: -0.48px;
+  color: #626262;
+  margin: 0;
+  transition: color 0.25s ease;
+}
+
+.stepActive .stepText {
+  font-weight: 500;
+  color: #262626;
+}
+
+.documentsList {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.docItem {
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 20px;
+  letter-spacing: -0.48px;
+  color: #626262;
+  padding-left: 12px;
+  border-left: 2px solid transparent;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    padding-left 0.2s ease;
+}
+
+.docItem:hover {
+  color: #262626;
+  border-left-color: #98da00;
+  padding-left: 16px;
+}
+
+@media (max-width: 1400px) {
+  .sidebar {
+    display: none;
+  }
+}

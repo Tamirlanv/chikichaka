@@ -21,19 +21,30 @@ class ApplicationState(str, enum.Enum):
     in_progress = "in_progress"
     submitted = "submitted"
     under_screening = "under_screening"
+    revision_required = "revision_required"
+    screening_blocked = "screening_blocked"
     under_review = "under_review"
     interview_pending = "interview_pending"
+    interview_scheduled = "interview_scheduled"
     interview_completed = "interview_completed"
     committee_review = "committee_review"
+    pending_decision = "pending_decision"
     decision_made = "decision_made"
+    waitlist = "waitlist"
 
 
 class SectionKey(str, enum.Enum):
     personal = "personal"
     contact = "contact"
     education = "education"
+    achievements_activities = "achievements_activities"
+    leadership_evidence = "leadership_evidence"
+    motivation_goals = "motivation_goals"
+    growth_journey = "growth_journey"
     internal_test = "internal_test"
     social_status_cert = "social_status_cert"
+    documents_manifest = "documents_manifest"
+    consent_agreement = "consent_agreement"
 
 
 class DocumentType(str, enum.Enum):
@@ -41,6 +52,9 @@ class DocumentType(str, enum.Enum):
     transcript = "transcript"
     portfolio = "portfolio"
     essay = "essay"
+    supporting_documents = "supporting_documents"
+    motivation_upload = "motivation_upload"
+    growth_journey_upload = "growth_journey_upload"
 
 
 class VerificationStatus(str, enum.Enum):
@@ -89,3 +103,37 @@ class CommitteeRecommendation(str, enum.Enum):
 
 class AIDecisionAuthority(str, enum.Enum):
     human_only = "human_only"
+
+
+class ExtractionStatus(str, enum.Enum):
+    pending = "pending"
+    completed = "completed"
+    failed = "failed"
+    skipped = "skipped"
+
+
+class AnalysisRunStatus(str, enum.Enum):
+    pending = "pending"
+    completed = "completed"
+    failed = "failed"
+    skipped = "skipped"
+
+
+class ScreeningResult(str, enum.Enum):
+    passed = "passed"
+    failed = "failed"
+    revision_required = "revision_required"
+
+
+class JobType(str, enum.Enum):
+    extract_text = "extract_text"
+    run_block_analysis = "run_block_analysis"
+    initial_screening = "initial_screening"
+
+
+class JobStatus(str, enum.Enum):
+    queued = "queued"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+    dead = "dead"

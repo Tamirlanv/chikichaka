@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiFetch, ApiError } from "@/lib/api-client";
+import { apiFetchCached, ApiError } from "@/lib/api-client";
 import { applicationStageRu } from "@/lib/labels";
 
 const ORDER = [
@@ -31,7 +31,7 @@ export function StageTracker() {
   useEffect(() => {
     async function run() {
       try {
-        const s = await apiFetch<Status>("/candidates/me/application/status");
+        const s = await apiFetchCached<Status>("/candidates/me/application/status", 2 * 60 * 1000);
         setData(s);
       } catch (e) {
         if (e instanceof ApiError) {

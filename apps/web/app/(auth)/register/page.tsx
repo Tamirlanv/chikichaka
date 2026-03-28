@@ -1,75 +1,256 @@
 "use client";
 
+import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { apiFetch, ApiError } from "@/lib/api-client";
-import { registerSchema } from "@/lib/validation";
+import {
+  registerPageSchema,
+  splitNameToProfile,
+  verifyCodeSchema,
+  type RegisterPageForm,
+  type VerifyCodeForm,
+} from "@/lib/validation";
+import { InputField } from "@/components/auth/InputField";
+import { TermsCheckbox } from "@/components/auth/TermsCheckbox";
+import styles from "@/components/auth/auth-register.module.css";
 
-type Form = z.infer<typeof registerSchema>;
+const LOGO_SRC = "/assets/images/Gemini_Generated_Image_7vjh7a7vjh7a7vjh.png";
+
+type Step = "form" | "verify";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [err, setErr] = useState<string | null>(null);
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<Form>({ resolver: zodResolver(registerSchema) });
+  const [step, setStep] = useState<Step>("form");
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  const [apiErr, setApiErr] = useState<string | null>(null);
 
-  async function onSubmit(data: Form) {
-    setErr(null);
+  const form = useForm<RegisterPageForm>({
+    resolver: zodResolver(registerPageSchema),
+    defaultValues: {
+      name: "",
+      email: "",
+      password: "",
+      confirmPassword: "",
+      agreedToTerms: false,
+    },
+  });
+
+  const verifyForm = useForm<VerifyCodeForm>({
+    resolver: zodResolver(verifyCodeSchema),
+    defaultValues: { code: "" },
+  });
+
+  const agreed = form.watch("agreedToTerms");
+
+  async function onSubmitForm(data: RegisterPageForm) {
+    setApiErr(null);
+    const { first_name, last_name } = splitNameToProfile(data.name);
     try {
-      await apiFetch("/auth/register", { method: "POST", json: data });
-      router.replace("/dashboard?welcome=1");
-      router.refresh();
+      await apiFetch("/auth/register", {
+        method: "POST",
+        json: {
+          email: data.email,
+          password: data.password,
+          first_name,
+          last_name,
+        },
+      });
+      setPendingEmail(data.email.trim().toLowerCase());
+      setStep("verify");
+      verifyForm.reset({ code: "" });
     } catch (e) {
       if (e instanceof ApiError) {
-        setErr(e.message);
+        setApiErr(e.message);
       } else {
-        setErr("Не удалось зарегистрироваться");
+        setApiErr("Не удалось зарегистрироваться");
       }
     }
   }
 
+  async function onSubmitVerify(data: VerifyCodeForm) {
+    if (!pendingEmail) {
+      setApiErr("Сначала заполните регистрацию.");
+      return;
+    }
+    setApiErr(null);
+    try {
+      await apiFetch("/auth/register/complete", {
+        method: "POST",
+        json: { email: pendingEmail, code: data.code },
+      });
+      router.replace("/dashboard?welcome=1");
+      router.refresh();
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setApiErr(e.message);
+      } else {
+        setApiErr("Не удалось подтвердить код");
+      }
+    }
+  }
+
+  function goBackToForm() {
+    setStep("form");
+    setPendingEmail(null);
+    setApiErr(null);
+  }
+
   return (
-    <div style={{ maxWidth: 480 }}>
-      <h1 className="h1">Регистрация</h1>
-      <p className="muted">Создайте аккаунт абитуриента inVision U.</p>
-      <form className="card grid" style={{ marginTop: 16 }} onSubmit={handleSubmit(onSubmit)}>
-        <div>
-          <label className="label">Email</label>
-          <input className="input" type="email" autoComplete="email" {...register("email")} />
-          {errors.email && <div className="error">{errors.email.message}</div>}
+    <div className={styles.root}>
+      <div className={styles.panelLeft}>
+        <div className={styles.logoWrap}>
+          <Image
+            src={LOGO_SRC}
+            alt="inVision"
+            fill
+            sizes="(max-width: 900px) 80vw, 474px"
+            priority
+            style={{ objectFit: "contain" }}
+          />
         </div>
-        <div>
-          <label className="label">Пароль</label>
-          <input className="input" type="password" autoComplete="new-password" {...register("password")} />
-          {errors.password && <div className="error">{errors.password.message}</div>}
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div>
-            <label className="label">Имя</label>
-            <input className="input" {...register("first_name")} />
-            {errors.first_name && <div className="error">{errors.first_name.message}</div>}
-          </div>
-          <div>
-            <label className="label">Фамилия</label>
-            <input className="input" {...register("last_name")} />
-            {errors.last_name && <div className="error">{errors.last_name.message}</div>}
-          </div>
-        </div>
-        {err && <div className="error">{err}</div>}
-        <button className="btn" type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Создание…" : "Создать аккаунт"}
-        </button>
-        <p className="muted" style={{ margin: 0 }}>
-          Уже есть аккаунт? <Link href="/login">Войти</Link>
-        </p>
-      </form>
+      </div>
+
+      <div className={styles.panelRight}>
+        {step === "form" ? (
+          <form className={styles.formColumn} onSubmit={form.handleSubmit(onSubmitForm)} noValidate>
+            <h1 className={styles.title}>Регистрация</h1>
+
+            <div className={styles.fields}>
+              <div className={styles.fieldStack}>
+                <Controller
+                  name="name"
+                  control={form.control}
+                  render={({ field }) => (
+                    <InputField
+                      label="Имя"
+                      placeholder="Введите имя"
+                      name={field.name}
+                      value={field.value}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      error={form.formState.errors.name?.message}
+                      autoComplete="name"
+                    />
+                  )}
+                />
+                <Controller
+                  name="email"
+                  control={form.control}
+                  render={({ field }) => (
+                    <InputField
+                      label="E-mail"
+                      type="email"
+                      placeholder="Введите e-mail"
+                      name={field.name}
+                      value={field.value}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      error={form.formState.errors.email?.message}
+                      autoComplete="email"
+                    />
+                  )}
+                />
+                <Controller
+                  name="password"
+                  control={form.control}
+                  render={({ field }) => (
+                    <InputField
+                      label="Пароль"
+                      type="password"
+                      placeholder="Введите пароль"
+                      name={field.name}
+                      value={field.value}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      error={form.formState.errors.password?.message}
+                      autoComplete="new-password"
+                    />
+                  )}
+                />
+                <Controller
+                  name="confirmPassword"
+                  control={form.control}
+                  render={({ field }) => (
+                    <InputField
+                      label="Подтвердить пароль"
+                      type="password"
+                      placeholder="Введите пароль"
+                      name={field.name}
+                      value={field.value}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      error={form.formState.errors.confirmPassword?.message}
+                      autoComplete="new-password"
+                    />
+                  )}
+                />
+              </div>
+
+              <TermsCheckbox
+                checked={agreed}
+                onChange={(v) => form.setValue("agreedToTerms", v, { shouldValidate: true })}
+                error={form.formState.errors.agreedToTerms?.message}
+              />
+            </div>
+
+            <div className={styles.actions}>
+              {apiErr ? <p className={styles.apiError}>{apiErr}</p> : null}
+              <button type="submit" className={styles.submitBtn} disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting ? "Отправка…" : "Продолжить"}
+              </button>
+              <p className={styles.footerLine}>
+                <span>Уже есть аккаунт? </span>
+                <Link href="/login" className={styles.footerLink}>
+                  Войти
+                </Link>
+              </p>
+            </div>
+          </form>
+        ) : (
+          <form className={styles.formColumn} onSubmit={verifyForm.handleSubmit(onSubmitVerify)} noValidate>
+            <h1 className={styles.title}>Верификация</h1>
+            {pendingEmail ? (
+              <p className={styles.verifyHint}>Код отправлен на {pendingEmail}</p>
+            ) : null}
+
+            <div className={styles.fields}>
+              <div className={styles.fieldStack}>
+                <Controller
+                  name="code"
+                  control={verifyForm.control}
+                  render={({ field }) => (
+                    <InputField
+                      label="Код"
+                      placeholder="Введите код из почты"
+                      name={field.name}
+                      value={field.value}
+                      onChange={(v) => field.onChange(v.replace(/\D/g, "").slice(0, 6))}
+                      onBlur={field.onBlur}
+                      error={verifyForm.formState.errors.code?.message}
+                      autoComplete="one-time-code"
+                      inputMode="numeric"
+                    />
+                  )}
+                />
+              </div>
+            </div>
+
+            <div className={styles.actions}>
+              {apiErr ? <p className={styles.apiError}>{apiErr}</p> : null}
+              <button type="submit" className={styles.submitBtn} disabled={verifyForm.formState.isSubmitting}>
+                {verifyForm.formState.isSubmitting ? "Проверка…" : "Продолжить"}
+              </button>
+              <button type="button" className={styles.backLink} onClick={goBackToForm}>
+                Назад к регистрации
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
     </div>
   );
 }

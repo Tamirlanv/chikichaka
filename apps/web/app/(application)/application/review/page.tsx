@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { apiFetch, ApiError } from "@/lib/api-client";
+import { apiFetch, apiFetchCached, bustApiCache, ApiError } from "@/lib/api-client";
 import {
   applicationStageRu,
   applicationStateRu,
@@ -36,8 +36,8 @@ export default function ReviewPage() {
   const load = useCallback(async () => {
     try {
       const [r, m] = await Promise.all([
-        apiFetch<Review>("/candidates/me/application/review"),
-        apiFetch<{ user: { email_verified: boolean } }>("/auth/me"),
+        apiFetchCached<Review>("/candidates/me/application/review", 60 * 1000),
+        apiFetchCached<{ user: { email_verified: boolean } }>("/auth/me", 2 * 60 * 1000),
       ]);
       setData(r);
       setMe(m.user);
@@ -56,6 +56,8 @@ export default function ReviewPage() {
     setMsg(null);
     try {
       await apiFetch("/candidates/me/application/submit", { method: "POST" });
+      bustApiCache("/candidates/me");
+      bustApiCache("/auth/me");
       setMsg("Заявление успешно подана.");
       await load();
     } catch (e) {

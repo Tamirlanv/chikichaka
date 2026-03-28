@@ -97,6 +97,14 @@ def register_candidate(
     return user
 
 
+def verify_email_by_email(db: Session, email: str, code: str) -> User:
+    """Подтверждение email по адресу (без сессии, например после регистрации)."""
+    user = user_repository.get_user_by_email(db, email.lower().strip())
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден")
+    return verify_email(db, user.id, code)
+
+
 def verify_email(db: Session, user_id: UUID, code: str) -> User:
     user = user_repository.get_user_by_id(db, user_id)
     if not user:

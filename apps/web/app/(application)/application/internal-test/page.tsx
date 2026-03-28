@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { apiFetch, ApiError } from "@/lib/api-client";
+import { apiFetch, apiFetchCached, bustApiCache, ApiError } from "@/lib/api-client";
 import { questionCategoryRu, questionTypeRu } from "@/lib/labels";
 
 type Question = {
@@ -20,7 +20,7 @@ export default function InternalTestPage() {
 
   const load = useCallback(async () => {
     try {
-      const qs = await apiFetch<Question[]>("/internal-test/questions");
+      const qs = await apiFetchCached<Question[]>("/internal-test/questions", 10 * 60 * 1000);
       setQuestions(qs);
     } catch (e) {
       if (e instanceof ApiError) {
@@ -63,6 +63,7 @@ export default function InternalTestPage() {
     });
     try {
       await apiFetch("/internal-test/answers", { method: "POST", json: { answers: payload } });
+      bustApiCache("/candidates/me");
       setMsg("Черновик сохранён.");
     } catch (e) {
       if (e instanceof ApiError) {
@@ -76,6 +77,7 @@ export default function InternalTestPage() {
     try {
       await saveDraft();
       await apiFetch("/internal-test/submit", { method: "POST" });
+      bustApiCache("/candidates/me");
       setMsg("Внутренний тест отправлен.");
     } catch (e) {
       if (e instanceof ApiError) {
@@ -93,7 +95,7 @@ export default function InternalTestPage() {
         Сохраняйте черновик по ходу. Отправка один раз — после отправки ответы нельзя изменить.
       </p>
       {questions.map((q) => (
-        <div key={q.id} className="card grid" style={{ background: "rgba(0,0,0,0.2)" }}>
+        <div key={q.id} className="card grid card--nested">
           <div className="muted" style={{ fontSize: 12 }}>
             {questionCategoryRu(q.category)} · {questionTypeRu(q.question_type)}
           </div>

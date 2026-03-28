@@ -1,4 +1,7 @@
 import { apiServerBase } from "./config";
+import { getCached, setCached } from "./api-cache";
+
+export { bustApiCache } from "./api-cache";
 
 export class ApiError extends Error {
   status: number;
@@ -55,6 +58,18 @@ export async function apiFetch<T>(
     throw new ApiError(msg, res.status, data);
   }
   return data as T;
+}
+
+/** Cached GET for client-side deduplication (see api-cache). */
+export async function apiFetchCached<T>(path: string, ttlMs: number): Promise<T> {
+  if (typeof window === "undefined") {
+    return apiFetch<T>(path);
+  }
+  const hit = getCached<T>(path);
+  if (hit !== undefined) return hit;
+  const data = await apiFetch<T>(path);
+  setCached(path, data, ttlMs);
+  return data;
 }
 
 export async function refreshSession(): Promise<boolean> {

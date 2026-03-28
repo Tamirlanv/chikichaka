@@ -1,3 +1,4 @@
+import hashlib
 import mimetypes
 from uuid import UUID
 
@@ -20,6 +21,20 @@ ALLOWED_MIME: dict[str, tuple[str, ...]] = {
     DocumentType.transcript.value: ("application/pdf",),
     DocumentType.portfolio.value: ("application/pdf", "image/jpeg", "image/png"),
     DocumentType.essay.value: ("application/pdf",),
+    DocumentType.supporting_documents.value: (
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ),
+    DocumentType.motivation_upload.value: (
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ),
+    DocumentType.growth_journey_upload.value: (
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ),
 }
 
 MAX_BYTES: dict[str, int] = {
@@ -27,6 +42,9 @@ MAX_BYTES: dict[str, int] = {
     DocumentType.transcript.value: 15 * 1024 * 1024,
     DocumentType.portfolio.value: 40 * 1024 * 1024,
     DocumentType.essay.value: 10 * 1024 * 1024,
+    DocumentType.supporting_documents.value: 25 * 1024 * 1024,
+    DocumentType.motivation_upload.value: 15 * 1024 * 1024,
+    DocumentType.growth_journey_upload.value: 15 * 1024 * 1024,
 }
 
 
@@ -76,11 +94,14 @@ async def upload_document(
         mime_type=ct,
         byte_size=size,
         verification_status=VerificationStatus.pending.value,
+        sha256_hex=hashlib.sha256(raw).hexdigest(),
     )
     db.add(doc)
     db.flush()
     if document_type == DocumentType.certificate_of_social_status:
         application_service.recompute_social_section(db, app)
+    if document_type.value in application_service.DOCUMENTS_MANIFEST_REQUIRED_TYPES:
+        application_service.recompute_documents_manifest_section(db, app)
     db.commit()
     db.refresh(doc)
     return doc

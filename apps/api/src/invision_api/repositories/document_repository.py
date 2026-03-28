@@ -20,3 +20,19 @@ def has_document_type(db: Session, application_id: UUID, document_type: str) -> 
         )
         is not None
     )
+
+
+def has_all_document_types(db: Session, application_id: UUID, document_types: list[str]) -> bool:
+    return all(has_document_type(db, application_id, dt) for dt in document_types)
+
+
+def document_belongs_to_application(db: Session, document_id: UUID, application_id: UUID) -> bool:
+    return (
+        db.scalar(
+            select(Document.id).where(
+                Document.id == document_id,
+                Document.application_id == application_id,
+            ).limit(1)
+        )
+        is not None
+    )

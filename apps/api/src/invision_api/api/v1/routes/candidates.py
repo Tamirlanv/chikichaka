@@ -144,6 +144,22 @@ def patch_section(
     }
 
 
+@router.get("/me/application/stage")
+def get_my_stage(
+    user: User = Depends(require_roles(RoleName.candidate)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    profile = get_candidate_profile_by_user(db, user.id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    app = get_application_for_candidate(db, profile.id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Заявление не найдено")
+    from invision_api.services.stages import application_stage_service
+
+    return application_stage_service.get_stage_snapshot(db, app)
+
+
 @router.post("/me/application/submit")
 def submit(
     user: User = Depends(require_roles(RoleName.candidate)),

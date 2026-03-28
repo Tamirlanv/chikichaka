@@ -12,6 +12,7 @@ from invision_api.models.application import (
     ApplicationSectionState,
     ApplicationStageHistory,
     CandidateProfile,
+    Document,
     EducationRecord,
 )
 from invision_api.models.enums import (
@@ -67,6 +68,20 @@ def _social_status_complete(db: Session, application_id: UUID) -> bool:
     )
 
 
+DOCUMENTS_MANIFEST_REQUIRED_TYPES: list[str] = [
+    DocumentType.transcript.value,
+    DocumentType.portfolio.value,
+    DocumentType.essay.value,
+    DocumentType.certificate_of_social_status.value,
+]
+
+
+def _documents_manifest_complete(db: Session, application_id: UUID, validated: section_payloads.DocumentsManifestSectionPayload) -> bool:
+    if not validated.acknowledged_required_documents:
+        return False
+    return document_repository.has_all_document_types(db, application_id, DOCUMENTS_MANIFEST_REQUIRED_TYPES)
+
+
 def compute_section_complete(
     db: Session,
     app: Application,
@@ -79,12 +94,35 @@ def compute_section_complete(
         case SectionKey.education:
             edu = validated if isinstance(validated, section_payloads.EducationSectionPayload) else None
             return bool(edu and len(edu.entries) >= 1)
+        case SectionKey.achievements_activities:
+            a = validated if isinstance(validated, section_payloads.AchievementsActivitiesSectionPayload) else None
+            return bool(a and len(a.activities) >= 1)
+        case SectionKey.leadership_evidence:
+            l = validated if isinstance(validated, section_payloads.LeadershipEvidenceSectionPayload) else None
+            return bool(l and len(l.items) >= 1)
+        case SectionKey.motivation_goals:
+            return isinstance(validated, section_payloads.MotivationGoalsSectionPayload)
+        case SectionKey.growth_journey:
+            return isinstance(validated, section_payloads.GrowthJourneySectionPayload)
         case SectionKey.internal_test:
             return _internal_test_complete(db, app.id)
         case SectionKey.social_status_cert:
             if not isinstance(validated, section_payloads.SocialStatusSectionPayload):
                 return False
             return _social_status_complete(db, app.id)
+        case SectionKey.documents_manifest:
+            return (
+                isinstance(validated, section_payloads.DocumentsManifestSectionPayload)
+                and _documents_manifest_complete(db, app.id, validated)
+            )
+        case SectionKey.consent_agreement:
+            c = validated if isinstance(validated, section_payloads.ConsentAgreementSectionPayload) else None
+            return bool(
+                c
+                and c.accepted_terms
+                and c.accepted_privacy
+                and bool(c.consent_policy_version.strip())
+            )
     return False
 
 
@@ -137,6 +175,34 @@ def sync_education_records(db: Session, app: Application, validated: section_pay
         )
 
 
+def _validate_leadership_documents(db: Session, application_id: UUID, payload: section_payloads.LeadershipEvidenceSectionPayload) -> None:
+    for item in payload.items:
+        for did in item.supporting_document_ids:
+            if not document_repository.document_belongs_to_application(db, did, application_id):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Документ {did} не принадлежит этому заявлению",
+                )
+
+
+def _validate_optional_motivation_growth_doc(
+    db: Session,
+    application_id: UUID,
+    document_id: UUID | None,
+    expected_type: str,
+) -> None:
+    if document_id is None:
+        return
+    if not document_repository.document_belongs_to_application(db, document_id, application_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Некорректная ссылка на документ")
+    row = db.scalars(select(Document).where(Document.id == document_id, Document.application_id == application_id)).first()
+    if not row or row.document_type != expected_type:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Документ должен иметь тип {expected_type}",
+        )
+
+
 def save_section(
     db: Session,
     user: User,
@@ -166,6 +232,33 @@ def save_section(
             raise HTTPException(status_code=400, detail="Некорректные данные раздела «Образование»")
         sync_education_records(db, app, e)
         out_payload = e.model_dump(mode="json")
+    elif section_key == SectionKey.achievements_activities:
+        a = validated if isinstance(validated, section_payloads.AchievementsActivitiesSectionPayload) else None
+        if not a:
+            raise HTTPException(status_code=400, detail="Некорректные данные раздела «Достижения»")
+        out_payload = a.model_dump(mode="json")
+    elif section_key == SectionKey.leadership_evidence:
+        l = validated if isinstance(validated, section_payloads.LeadershipEvidenceSectionPayload) else None
+        if not l:
+            raise HTTPException(status_code=400, detail="Некорректные данные раздела «Лидерство»")
+        _validate_leadership_documents(db, app.id, l)
+        out_payload = l.model_dump(mode="json")
+    elif section_key == SectionKey.motivation_goals:
+        m = validated if isinstance(validated, section_payloads.MotivationGoalsSectionPayload) else None
+        if not m:
+            raise HTTPException(status_code=400, detail="Некорректные данные раздела «Мотивация»")
+        _validate_optional_motivation_growth_doc(
+            db, app.id, m.motivation_document_id, DocumentType.motivation_upload.value
+        )
+        out_payload = m.model_dump(mode="json")
+    elif section_key == SectionKey.growth_journey:
+        g = validated if isinstance(validated, section_payloads.GrowthJourneySectionPayload) else None
+        if not g:
+            raise HTTPException(status_code=400, detail="Некорректные данные раздела «Рост»")
+        _validate_optional_motivation_growth_doc(
+            db, app.id, g.growth_document_id, DocumentType.growth_journey_upload.value
+        )
+        out_payload = g.model_dump(mode="json")
     elif section_key == SectionKey.internal_test:
         it = validated if isinstance(validated, section_payloads.InternalTestSectionPayload) else None
         if not it:
@@ -176,6 +269,16 @@ def save_section(
         if not s:
             raise HTTPException(status_code=400, detail="Некорректные данные раздела «Социальный статус»")
         out_payload = s.model_dump(mode="json")
+    elif section_key == SectionKey.documents_manifest:
+        d = validated if isinstance(validated, section_payloads.DocumentsManifestSectionPayload) else None
+        if not d:
+            raise HTTPException(status_code=400, detail="Некорректные данные раздела «Документы»")
+        out_payload = d.model_dump(mode="json")
+    elif section_key == SectionKey.consent_agreement:
+        co = validated if isinstance(validated, section_payloads.ConsentAgreementSectionPayload) else None
+        if not co:
+            raise HTTPException(status_code=400, detail="Некорректные данные раздела «Согласие»")
+        out_payload = co.model_dump(mode="json")
     else:
         raise HTTPException(status_code=400, detail="Неизвестный раздел")
 
@@ -195,8 +298,14 @@ REQUIRED_SECTIONS: list[SectionKey] = [
     SectionKey.personal,
     SectionKey.contact,
     SectionKey.education,
+    SectionKey.achievements_activities,
+    SectionKey.leadership_evidence,
+    SectionKey.motivation_goals,
+    SectionKey.growth_journey,
     SectionKey.internal_test,
     SectionKey.social_status_cert,
+    SectionKey.documents_manifest,
+    SectionKey.consent_agreement,
 ]
 
 
@@ -226,6 +335,23 @@ def recompute_social_section(db: Session, app: Application) -> None:
     except Exception:
         return
     row.is_complete = compute_section_complete(db, app, SectionKey.social_status_cert, validated)
+    row.last_saved_at = datetime.now(tz=UTC)
+
+
+def recompute_documents_manifest_section(db: Session, app: Application) -> None:
+    row = db.scalars(
+        select(ApplicationSectionState).where(
+            ApplicationSectionState.application_id == app.id,
+            ApplicationSectionState.section_key == SectionKey.documents_manifest.value,
+        )
+    ).first()
+    if not row:
+        return
+    try:
+        validated = section_payloads.DocumentsManifestSectionPayload.model_validate(row.payload)
+    except Exception:
+        return
+    row.is_complete = compute_section_complete(db, app, SectionKey.documents_manifest, validated)
     row.last_saved_at = datetime.now(tz=UTC)
 
 
@@ -274,6 +400,9 @@ def submit_application(db: Session, user: User) -> Application:
             candidate_visible_note="Заявление отправлено и ожидает первичного рассмотрения.",
         )
     )
+    from invision_api.services.stages import initial_screening_service
+
+    initial_screening_service.enqueue_post_submit_jobs(db, app.id)
     db.commit()
     db.refresh(app)
     return app

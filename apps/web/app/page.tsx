@@ -2,12 +2,12 @@ import Link from "next/link";
 
 export default function HomePage() {
   return (
-    <div>
+    <div className="container home-hero">
       <h1 className="h1">inVision U</h1>
-      <p className="muted" style={{ maxWidth: 640 }}>
+      <p className="muted">
         Портал для подачи заявления. Войдите, чтобы продолжить заполнение анкеты.
       </p>
-      <div style={{ display: "flex", gap: 12, marginTop: 18 }}>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
         <Link className="btn" href="/login">
           Войти
         </Link>

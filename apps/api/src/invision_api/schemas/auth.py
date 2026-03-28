@@ -33,6 +33,17 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class RegisterPendingResponse(BaseModel):
+    user_id: UUID
+    email: str
+    message: str = "Письмо с кодом отправлено на почту"
+
+
+class RegisterCompleteRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
 class UserPublic(BaseModel):
     id: UUID
     email: str

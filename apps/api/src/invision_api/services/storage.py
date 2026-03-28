@@ -11,6 +11,9 @@ class StorageBackend(Protocol):
     def absolute_path(self, storage_key: str) -> Path:
         """Resolve storage key to local path for serving/admin."""
 
+    def read_bytes(self, storage_key: str) -> bytes:
+        """Load file contents."""
+
     def delete(self, storage_key: str) -> None: ...
 
 
@@ -30,6 +33,10 @@ class LocalStorageBackend:
 
     def absolute_path(self, storage_key: str) -> Path:
         return (self._root / storage_key).resolve()
+
+    def read_bytes(self, storage_key: str) -> bytes:
+        """Load file contents."""
+        return self.absolute_path(storage_key).read_bytes()
 
     def delete(self, storage_key: str) -> None:
         p = self.absolute_path(storage_key)
