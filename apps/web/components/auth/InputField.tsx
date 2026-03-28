@@ -7,7 +7,8 @@ type InputFieldProps = {
   type?: string;
   placeholder: string;
   name: string;
-  value: string;
+  /** Пустая строка, если не задано — иначе React ругается на переход uncontrolled → controlled */
+  value: string | undefined;
   onChange: (value: string) => void;
   onBlur?: () => void;
   error?: string;
@@ -37,7 +38,7 @@ export function InputField({
           id={name}
           name={name}
           type={type}
-          value={value}
+          value={value ?? ""}
           onChange={(e) => onChange(e.target.value)}
           onBlur={onBlur}
           placeholder={placeholder}

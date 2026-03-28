@@ -20,6 +20,9 @@ const DOC_CHECKLIST = [
   "Результаты ЕНТ/Сертификат 12 классов NIS",
 ];
 
+/** Индекс текущего этапа (0…5); позже можно подставить из API. */
+const ACTIVE_STEP_INDEX = 0;
+
 const R = 24;
 const CIRC = 2 * Math.PI * R;
 
@@ -95,18 +98,27 @@ export function ApplicationSidebar() {
 
       <div className={styles.card}>
         <h3 className={styles.stepsTitle}>
-          Этап <span>1</span> / <span>6</span>
+          Этап <span>{ACTIVE_STEP_INDEX + 1}</span> / <span>{PIPELINE_STEPS.length}</span>
         </h3>
         <div className={styles.stepsList}>
           {PIPELINE_STEPS.map((label, i) => (
-            <div
-              key={label}
-              className={`${styles.step} ${i === 0 ? styles.stepActive : ""}`}
-            >
-              <div className={styles.dotCol}>
+            <div key={label} className={styles.stepBlock}>
+              <div
+                className={`${styles.stepRow} ${i === ACTIVE_STEP_INDEX ? styles.stepRowActive : ""}`}
+              >
                 <span className={styles.stepDot} />
+                <p className={styles.stepText}>{label}</p>
               </div>
-              <p className={styles.stepText}>{label}</p>
+              {i === ACTIVE_STEP_INDEX && i < PIPELINE_STEPS.length - 1 ? (
+                <div className={styles.stepDotsRow} aria-hidden>
+                  <div className={styles.stepDots}>
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                  <div />
+                </div>
+              ) : null}
             </div>
           ))}
         </div>

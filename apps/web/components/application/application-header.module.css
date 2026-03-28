@@ -1,5 +1,5 @@
 .header {
-  padding: 60px 80px 24px;
+  padding: 60px var(--application-page-padding-x, 80px) 24px;
   animation: slideDown 0.45s ease-out;
 }
 
@@ -19,8 +19,10 @@
   justify-content: space-between;
   align-items: flex-end;
   gap: 24px;
-  max-width: 1280px;
+  max-width: calc(1440px - 2 * var(--application-page-padding-x, 80px));
   margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .titleBlock {
@@ -61,25 +63,19 @@
   cursor: pointer;
   white-space: nowrap;
   font-family: inherit;
-  transition:
-    background 0.2s ease,
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
+  text-decoration: none;
+  transition: background 0.2s ease;
 }
 
-.submitBtn:hover:not(:disabled) {
-  background: #3a3a3a;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+.submitBtn:hover {
+  background: #4a4a4a;
+  color: #fff;
+  text-decoration: none;
 }
 
 .submitBtn:focus-visible {
   outline: 2px solid #98da00;
   outline-offset: 2px;
-}
-
-.submitBtn:active:not(:disabled) {
-  transform: translateY(0);
 }
 
 .submitBtn:disabled {
@@ -89,19 +85,22 @@
 
 @media (max-width: 1400px) {
   .header {
-    padding: 40px 40px 24px;
+    padding-top: 40px;
+    padding-bottom: 24px;
   }
 }
 
 @media (max-width: 1024px) {
   .header {
-    padding: 32px 24px 20px;
+    padding-top: 32px;
+    padding-bottom: 20px;
   }
 }
 
 @media (max-width: 768px) {
   .header {
-    padding: 24px 16px 16px;
+    padding-top: 24px;
+    padding-bottom: 16px;
   }
 
   .inner {

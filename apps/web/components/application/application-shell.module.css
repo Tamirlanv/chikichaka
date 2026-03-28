@@ -4,16 +4,21 @@
   display: flex;
   flex-direction: column;
   padding-bottom: 48px;
+  /* Единый горизонтальный отступ для шапки, sticky и ряда main|sidebar */
+  --application-page-padding-x: 80px;
+  /* 352px сайдбар + 80px gap — чтобы слайдер вкладок совпадал по ширине с колонкой формы */
+  --app-sidebar-occupied: 432px;
 }
 
 .layoutRow {
   display: flex;
   gap: 80px;
-  padding: 0 80px;
+  padding: 0 var(--application-page-padding-x, 80px);
   align-items: flex-start;
   max-width: 1440px;
   margin: 0 auto;
   width: 100%;
+  box-sizing: border-box;
 }
 
 .main {
@@ -39,14 +44,16 @@
   width: 352px;
   flex-shrink: 0;
   padding-top: 8px;
-  position: sticky;
-  top: 120px;
   align-self: flex-start;
 }
 
 @media (max-width: 1400px) {
+  .page {
+    --application-page-padding-x: 40px;
+    --app-sidebar-occupied: 0px;
+  }
+
   .layoutRow {
-    padding: 0 40px;
     gap: 40px;
   }
 
@@ -60,8 +67,8 @@
 }
 
 @media (max-width: 1024px) {
-  .layoutRow {
-    padding: 0 24px;
+  .page {
+    --application-page-padding-x: 24px;
   }
 
   .main {
@@ -70,8 +77,8 @@
 }
 
 @media (max-width: 768px) {
-  .layoutRow {
-    padding: 0 16px;
+  .page {
+    --application-page-padding-x: 16px;
   }
 
   .main {

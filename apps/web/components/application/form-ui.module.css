@@ -43,18 +43,26 @@
 }
 
 .row3 {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
-  align-items: flex-end;
+  align-items: end;
+  width: 100%;
 }
 
 .field {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  width: 280px;
+  width: 100%;
   min-width: 0;
+}
+
+.fieldSpan2 {
+  grid-column: span 2;
+  justify-self: start;
+  width: 100%;
+  max-width: 100%;
 }
 
 .label {
@@ -111,7 +119,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  width: 280px;
+  width: 100%;
   min-width: 0;
 }
 
@@ -167,8 +175,8 @@
 }
 
 .uploadArea:hover {
-  border-color: #98da00;
-  background: rgba(152, 218, 0, 0.02);
+  border-color: #c8c8c8;
+  background: #fafafa;
 }
 
 .uploadArea:focus-within {
@@ -180,11 +188,6 @@
   width: 36px;
   height: 36px;
   flex-shrink: 0;
-  transition: transform 0.25s ease;
-}
-
-.uploadArea:hover .uploadIcon {
-  transform: translateY(-4px);
 }
 
 .uploadTitle {
@@ -294,16 +297,12 @@
   margin-left: auto;
   display: block;
   margin-bottom: 80px;
-  transition:
-    background 0.2s ease,
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
+  transition: background 0.2s ease;
 }
 
 .nextBtn:hover:not(:disabled) {
-  background: #3a3a3a;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  background: #4a4a4a;
+  color: #fff;
 }
 
 .nextBtn:focus-visible {
@@ -324,7 +323,25 @@
   margin-bottom: 40px;
 }
 
+@media (max-width: 900px) {
+  .row3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fieldSpan2 {
+    grid-column: span 2;
+  }
+}
+
 @media (max-width: 768px) {
+  .row3 {
+    grid-template-columns: 1fr;
+  }
+
+  .fieldSpan2 {
+    grid-column: span 1;
+  }
+
   .field,
   .selectWrap {
     width: 100%;

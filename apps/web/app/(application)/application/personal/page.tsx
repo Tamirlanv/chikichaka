@@ -118,7 +118,7 @@ export default function PersonalPage() {
         </div>
         <div className={formStyles.row3}>
           <FormField label="Дата рождения" placeholder="ДД.ММ.ГГГГ" type="text" {...register("date_of_birth")} />
-          <div className={formStyles.field}>
+          <div className={`${formStyles.field} ${formStyles.fieldSpan2}`}>
             <span className={formStyles.label}>Пол</span>
             <Controller
               name="gender"

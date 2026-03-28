@@ -1,5 +1,16 @@
 /* inVision: светлая платформа, акцент #98da00, типографика 14 / 16 / 24 / 36 */
 
+/*
+ * Next.js dev: <nextjs-portal> не должен участвовать в потоке документа, иначе съезжают
+ * колонки/отступы (регистрация, анкета). См. vercel/next.js#70675.
+ * В production элемента нет — правило безвредно.
+ */
+nextjs-portal {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
 :root {
   --inv-bg: #ffffff;
   --inv-bg-subtle: #f6f8f3;
@@ -19,6 +30,7 @@
 
 * {
   box-sizing: border-box;
+  letter-spacing: -0.03em;
 }
 
 html,
@@ -42,7 +54,7 @@ a {
 
 a:hover {
   text-decoration: underline;
-  color: var(--inv-accent-dark);
+  color: var(--inv-text);
 }
 
 .container {
@@ -76,7 +88,7 @@ a:hover {
 }
 
 .btn:hover:not(:disabled) {
-  background: #3a3a3a;
+  background: #4a4a4a;
 }
 
 .btn:disabled {
@@ -86,13 +98,13 @@ a:hover {
 
 .btn.secondary {
   background: var(--inv-bg);
-  color: var(--inv-text-secondary);
+  color: var(--inv-text);
   border: 1px solid var(--inv-border);
 }
 
 .btn.secondary:hover:not(:disabled) {
-  background: var(--inv-bg-subtle);
-  color: var(--inv-accent-dark);
+  background: #f0f0f0;
+  color: var(--inv-text);
 }
 
 .input {

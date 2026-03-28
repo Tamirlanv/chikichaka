@@ -25,7 +25,10 @@ function LoginFormInner() {
     control,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<Form>({ resolver: zodResolver(loginSchema) });
+  } = useForm<Form>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: { email: "", password: "" },
+  });
 
   async function onSubmit(data: Form) {
     setErr(null);

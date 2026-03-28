@@ -22,15 +22,7 @@
   background: #fff;
   border-radius: 16px;
   padding: 24px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
-  transition:
-    box-shadow 0.25s ease,
-    transform 0.25s ease;
-}
-
-.card:hover {
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-  transform: translateY(-2px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.05);
 }
 
 .cardTitle {
@@ -87,11 +79,15 @@
 
 .stepsTitle {
   font-size: 20px;
-  font-weight: 600;
-  line-height: 20px;
+  font-weight: 700;
+  line-height: 1.2;
   letter-spacing: -0.6px;
-  color: #262626;
+  color: #000;
   margin: 0 0 20px;
+}
+
+.stepsTitle span {
+  font-weight: 700;
 }
 
 .stepsList {
@@ -100,64 +96,40 @@
   gap: 0;
 }
 
-.step {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  min-height: 36px;
-  padding-bottom: 8px;
-}
-
-.step:last-child {
-  padding-bottom: 0;
-}
-
-.dotCol {
-  width: 14px;
+.stepBlock {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  flex-shrink: 0;
-  position: relative;
-  padding-top: 3px;
+  gap: 0;
+  margin-bottom: 10px;
 }
 
-.dotCol::after {
-  content: "";
-  position: absolute;
-  top: 18px;
-  bottom: -10px;
-  left: 50%;
-  width: 2px;
-  transform: translateX(-50%);
-  background: repeating-linear-gradient(
-    to bottom,
-    #98da00 0,
-    #98da00 4px,
-    transparent 4px,
-    transparent 10px
-  );
-  opacity: 0.9;
+.stepBlock:last-child {
+  margin-bottom: 0;
 }
 
-.step:last-child .dotCol::after {
-  display: none;
+.stepRow {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  column-gap: 12px;
+  align-items: start;
 }
 
 .stepDot {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: #e1e1e1;
   flex-shrink: 0;
-  transition:
-    background 0.25s ease,
-    box-shadow 0.25s ease;
+  margin-top: 4px;
+  justify-self: center;
 }
 
-.stepActive .stepDot {
+.stepRowActive .stepDot {
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
   background: #98da00;
-  box-shadow: 0 0 0 3px rgba(152, 218, 0, 0.25);
+  justify-self: center;
 }
 
 .stepText {
@@ -167,12 +139,37 @@
   letter-spacing: -0.48px;
   color: #626262;
   margin: 0;
-  transition: color 0.25s ease;
 }
 
-.stepActive .stepText {
-  font-weight: 500;
-  color: #262626;
+.stepRowActive .stepText {
+  font-weight: 700;
+  color: #000;
+}
+
+/* Три точки под активным этапом — только до следующего шага */
+.stepDotsRow {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  column-gap: 12px;
+  align-items: start;
+  margin: 2px 0 8px;
+}
+
+.stepDots {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0 0 4px;
+  width: 14px;
+  justify-self: center;
+}
+
+.stepDots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #98da00;
 }
 
 .documentsList {
@@ -189,16 +186,13 @@
   color: #626262;
   padding-left: 12px;
   border-left: 2px solid transparent;
-  transition:
-    color 0.2s ease,
-    border-color 0.2s ease,
-    padding-left 0.2s ease;
+  transition: color 0.2s ease, background 0.2s ease;
 }
 
 .docItem:hover {
   color: #262626;
-  border-left-color: #98da00;
-  padding-left: 16px;
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 4px;
 }
 
 @media (max-width: 1400px) {
