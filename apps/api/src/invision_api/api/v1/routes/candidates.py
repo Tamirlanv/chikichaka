@@ -57,6 +57,7 @@ def get_application(
 
     sections = {s.section_key: {"payload": s.payload, "is_complete": s.is_complete} for s in app.section_states}
     pct, missing = application_service.completion_percentage(db, app)
+    docs = document_repository.list_documents_for_application(db, app.id)
     return {
         "application": {
             "id": str(app.id),
@@ -66,6 +67,15 @@ def get_application(
             "locked_after_submit": app.locked_after_submit,
         },
         "sections": sections,
+        "documents": [
+            {
+                "id": str(d.id),
+                "document_type": d.document_type,
+                "original_filename": d.original_filename,
+                "byte_size": d.byte_size,
+            }
+            for d in docs
+        ],
         "education_records": [
             {
                 "id": str(er.id),

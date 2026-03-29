@@ -80,27 +80,41 @@ export const personalSchema = z.object({
 
 export const contactSchema = z.object({
   phone_e164: z.string().min(8, { message: "Укажите телефон в формате E.164" }).max(32),
-  address_line1: z.string().min(1, { message: "Обязательное поле" }),
-  address_line2: z.string().optional(),
-  city: z.string().min(1, { message: "Обязательное поле" }),
-  region: z.string().optional(),
-  postal_code: z.string().optional(),
   country: z.string().length(2, { message: "Код страны ISO-2 (2 буквы)" }),
+  region: z.string().optional(),
+  city: z.string().min(1, { message: "Обязательное поле" }),
+  street: z.string().min(1, { message: "Укажите улицу" }),
+  house: z.string().optional(),
+  apartment: z.string().optional(),
+  address_line2: z.string().optional(),
+  postal_code: z.string().optional(),
+  instagram: z.string().optional(),
+  telegram: z.string().optional(),
+  whatsapp: z.string().optional(),
+  consent_privacy: z.boolean().refine((v) => v === true, { message: "Необходимо согласие" }),
+  consent_parent: z.boolean().refine((v) => v === true, { message: "Необходимо подтверждение" }),
 });
 
+const educationEntrySchema = z.object({
+  institution_name: z.string().min(1, { message: "Укажите учебное заведение" }),
+  degree_or_program: z.string().optional(),
+  field_of_study: z.string().optional(),
+  start_date: z.string().optional(),
+  end_date: z.string().optional(),
+  is_current: z.boolean(),
+});
+
+/** Раздел «Образование»: презентация, язык, сертификаты; entries сохраняются для старых данных. */
 export const educationSchema = z.object({
-  entries: z
-    .array(
-      z.object({
-        institution_name: z.string().min(1, { message: "Укажите учебное заведение" }),
-        degree_or_program: z.string().optional(),
-        field_of_study: z.string().optional(),
-        start_date: z.string().optional(),
-        end_date: z.string().optional(),
-        is_current: z.boolean(),
-      }),
-    )
-    .min(1, { message: "Добавьте хотя бы одну запись об образовании" }),
+  entries: z.array(educationEntrySchema).max(20).default([]),
+  presentation_video_url: z.string().min(1, { message: "Укажите ссылку на презентацию" }),
+  english_proof_kind: z.enum(["ielts_6", "toefl_60_78"]),
+  certificate_proof_kind: z.enum(["ent", "nis_12"]),
+  english_document_id: z.string().optional(),
+  certificate_document_id: z.string().optional(),
+  additional_document_id: z.string().optional(),
+  consent_privacy: z.boolean().refine((v) => v === true, { message: "Необходимо согласие" }),
+  consent_parent: z.boolean().refine((v) => v === true, { message: "Необходимо подтверждение" }),
 });
 
 export const socialSchema = z.object({

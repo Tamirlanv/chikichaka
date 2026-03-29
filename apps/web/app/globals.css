@@ -12,6 +12,10 @@ nextjs-portal {
 }
 
 :root {
+  --fw-regular: 350;
+  --fw-medium: 450;
+  --fw-semibold: 550;
+  --fw-bold: 600;
   --inv-bg: #ffffff;
   --inv-bg-subtle: #f6f8f3;
   --inv-panel: #98da00;
@@ -70,41 +74,83 @@ a:hover {
   box-shadow: 0 1px 3px rgba(38, 38, 38, 0.06);
 }
 
+/* Единая кнопка платформы: как «Сохранить» / «Далее» в анкете (form-ui nextBtn). Меняется только вариант цвета. */
 .btn {
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   border-radius: var(--radius-sm);
-  padding: 12px 20px;
-  border: none;
-  background: var(--inv-text);
+  padding: 12px 24px;
+  border: 1px solid transparent;
+  background: #262626;
   color: #fff;
   cursor: pointer;
-  font-size: 16px;
-  font-weight: 450;
+  font-size: 14px;
+  font-weight: var(--fw-regular);
+  line-height: 14px;
+  letter-spacing: -0.42px;
   font-family: var(--font);
-  transition: background 0.15s ease;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+a.btn {
+  font-weight: var(--fw-regular);
+  color: #fff;
+}
+
+a.btn:hover {
+  text-decoration: none;
 }
 
 .btn:hover:not(:disabled) {
   background: #4a4a4a;
+  color: #fff;
+}
+
+.btn:focus-visible {
+  outline: 2px solid #98da00;
+  outline-offset: 2px;
 }
 
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
+/* Светлая / контурная (белый фон, тонкая рамка) */
 .btn.secondary {
   background: var(--inv-bg);
   color: var(--inv-text);
-  border: 1px solid var(--inv-border);
+  border-color: var(--inv-border);
 }
 
 .btn.secondary:hover:not(:disabled) {
   background: #f0f0f0;
   color: var(--inv-text);
+}
+
+a.btn.secondary:hover {
+  color: var(--inv-text);
+}
+
+/* Акцент (лайм) — опционально, те же отступы и типографика */
+.btn.accent {
+  background: #98da00;
+  color: #262626;
+  border-color: transparent;
+}
+
+.btn.accent:hover:not(:disabled) {
+  background: #a8e838;
+  color: #262626;
+}
+
+a.btn.accent {
+  color: #262626;
 }
 
 .input {
@@ -196,11 +242,6 @@ a:hover {
   gap: 10px;
   flex-wrap: wrap;
   align-items: center;
-}
-
-.platform-nav .btn.secondary {
-  font-size: 14px;
-  padding: 8px 12px;
 }
 
 .page-stack {

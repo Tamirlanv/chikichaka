@@ -31,6 +31,12 @@ class ContactSectionPayload(BaseModel):
     region: str | None = Field(default=None, max_length=128)
     postal_code: str | None = Field(default=None, max_length=32)
     country: str = Field(min_length=2, max_length=2)
+    street: str | None = Field(default=None, max_length=255)
+    house: str | None = Field(default=None, max_length=64)
+    apartment: str | None = Field(default=None, max_length=32)
+    instagram: str | None = Field(default=None, max_length=128)
+    telegram: str | None = Field(default=None, max_length=128)
+    whatsapp: str | None = Field(default=None, max_length=32)
     preferred_communication_channel: str | None = Field(default=None, max_length=64)
     guardian_name: str | None = Field(default=None, max_length=255)
     guardian_phone_e164: str | None = Field(default=None, max_length=32)
@@ -52,7 +58,13 @@ class EducationItemPayload(BaseModel):
 
 
 class EducationSectionPayload(BaseModel):
-    entries: list[EducationItemPayload] = Field(min_length=1, max_length=20)
+    entries: list[EducationItemPayload] = Field(default_factory=list, max_length=20)
+    presentation_video_url: str | None = Field(default=None, max_length=2048)
+    english_proof_kind: str | None = Field(default=None, max_length=32)
+    certificate_proof_kind: str | None = Field(default=None, max_length=32)
+    english_document_id: UUID | None = None
+    certificate_document_id: UUID | None = None
+    additional_document_id: UUID | None = None
 
 
 class AchievementActivityItem(BaseModel):

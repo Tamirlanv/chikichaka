@@ -23,11 +23,28 @@ const DOC_CHECKLIST = [
 /** Индекс текущего этапа (0…5); позже можно подставить из API. */
 const ACTIVE_STEP_INDEX = 0;
 
+function StepDot({ active }: { active: boolean }) {
+  return (
+    <svg
+      className={styles.stepDot}
+      width={14}
+      height={14}
+      viewBox="0 0 14 14"
+      fill="none"
+      aria-hidden
+    >
+      <circle cx="7" cy="7" r="7" fill={active ? "#98DA00" : "#E1E1E1"} />
+    </svg>
+  );
+}
+
+/** Радиус кольца в viewBox 56×56, stroke 6 — как в макете */
 const R = 24;
+const STROKE = 6;
 const CIRC = 2 * Math.PI * R;
 
 function useDeadlineCountdown() {
-  const [parts, setParts] = useState({ d: 0, h: 0, m: 0, s: 0 });
+  const [parts, setParts] = useState({ d: 0, h: 0, m: 0 });
   const [ringRatio, setRingRatio] = useState(1);
 
   useEffect(() => {
@@ -38,8 +55,7 @@ function useDeadlineCountdown() {
       const d = Math.floor(diff / (24 * 60 * 60 * 1000));
       const h = Math.floor((diff % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
       const m = Math.floor((diff % (60 * 60 * 1000)) / (60 * 1000));
-      const s = Math.floor((diff % (60 * 1000)) / 1000);
-      setParts({ d, h, m, s });
+      setParts({ d, h, m });
       const remainingRatio = Math.min(1, Math.max(0, diff / CAMPAIGN_DURATION_MS));
       setRingRatio(Number.isFinite(remainingRatio) ? remainingRatio : 0);
     };
@@ -54,13 +70,15 @@ function useDeadlineCountdown() {
 export function ApplicationSidebar() {
   const { parts, ringRatio } = useDeadlineCountdown();
   const offset = CIRC * (1 - ringRatio);
+  const activeLabel = PIPELINE_STEPS[ACTIVE_STEP_INDEX];
+  const followingSteps = PIPELINE_STEPS.slice(ACTIVE_STEP_INDEX + 1);
 
   return (
     <aside className={styles.sidebar}>
-      <div className={styles.card}>
-        <h3 className={styles.cardTitle}>Срок подачи заявки</h3>
-        <div className={styles.deadlineRow}>
-          <div className={styles.timer}>
+      <div className={styles.deadlineCard}>
+        <div className={styles.deadlineLeft}>
+          <h3 className={styles.deadlineTitle}>Срок подачи заявки</h3>
+          <div className={styles.timerRow}>
             <img
               src="/assets/icons/ic_round-timer.svg"
               alt=""
@@ -72,55 +90,75 @@ export function ApplicationSidebar() {
               <span>{parts.d} д</span>
               <span>{parts.h} ч</span>
               <span>{parts.m} м</span>
-              <span>{parts.s} с</span>
             </div>
           </div>
-          <div className={styles.circularWrap} aria-hidden>
-            <svg width="56" height="56" viewBox="0 0 56 56">
-              <circle cx="28" cy="28" r={R} fill="none" stroke="#f1f1f1" strokeWidth="4" />
-              <circle
-                cx="28"
-                cy="28"
-                r={R}
-                fill="none"
-                stroke="#98da00"
-                strokeWidth="4"
-                strokeLinecap="round"
-                strokeDasharray={CIRC}
-                strokeDashoffset={offset}
-                transform="rotate(-90 28 28)"
-                className={styles.progressArc}
-              />
-            </svg>
-          </div>
+        </div>
+        <div className={styles.circularWrap} aria-hidden>
+          <svg width="56" height="56" viewBox="0 0 56 56">
+            <circle cx="28" cy="28" r={R} fill="none" stroke="#f1f1f1" strokeWidth={STROKE} />
+            <circle
+              cx="28"
+              cy="28"
+              r={R}
+              fill="none"
+              stroke="#98da00"
+              strokeWidth={STROKE}
+              strokeLinecap="round"
+              strokeDasharray={CIRC}
+              strokeDashoffset={offset}
+              transform="rotate(-90 28 28)"
+              className={styles.progressArc}
+            />
+          </svg>
         </div>
       </div>
 
-      <div className={styles.card}>
-        <h3 className={styles.stepsTitle}>
-          Этап <span>{ACTIVE_STEP_INDEX + 1}</span> / <span>{PIPELINE_STEPS.length}</span>
-        </h3>
-        <div className={styles.stepsList}>
-          {PIPELINE_STEPS.map((label, i) => (
-            <div key={label} className={styles.stepBlock}>
-              <div
-                className={`${styles.stepRow} ${i === ACTIVE_STEP_INDEX ? styles.stepRowActive : ""}`}
-              >
-                <span className={styles.stepDot} />
-                <p className={styles.stepText}>{label}</p>
+      <div className={styles.stepsCard}>
+        <div className={styles.stepsRow}>
+          <div className={styles.stepsListContainer}>
+            <div className={styles.stepsTitleRow}>
+              <p className={styles.stepsTitleText}>Этап</p>
+              <p className={styles.stepsTitleText}>
+                {ACTIVE_STEP_INDEX + 1}/{PIPELINE_STEPS.length}
+              </p>
+            </div>
+            <div className={styles.stepList}>
+              <div className={styles.stepItem}>
+                <StepDot active />
+                <p className={styles.labelActive}>{activeLabel}</p>
               </div>
-              {i === ACTIVE_STEP_INDEX && i < PIPELINE_STEPS.length - 1 ? (
-                <div className={styles.stepDotsRow} aria-hidden>
-                  <div className={styles.stepDots}>
-                    <span />
-                    <span />
-                    <span />
+              {followingSteps.length > 0 ? (
+                <div className={styles.lowerSteps}>
+                  <div className={styles.connectorOverlay} aria-hidden>
+                    <div className={styles.connectorRotate}>
+                      <svg
+                        viewBox="0 0 24 4"
+                        fill="none"
+                        preserveAspectRatio="none"
+                        className={styles.connectorSvg}
+                      >
+                        <path
+                          d="M2 2H22"
+                          stroke="#98DA00"
+                          strokeWidth="4"
+                          strokeLinecap="round"
+                          strokeDasharray="0.1 12"
+                        />
+                      </svg>
+                    </div>
                   </div>
-                  <div />
+                  <div className={styles.stepItemList}>
+                    {followingSteps.map((label) => (
+                      <div key={label} className={styles.stepItem}>
+                        <StepDot active={false} />
+                        <p className={styles.labelInactive}>{label}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : null}
             </div>
-          ))}
+          </div>
         </div>
       </div>
 

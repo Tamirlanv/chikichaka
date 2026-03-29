@@ -199,7 +199,7 @@ export default function RegisterPage() {
 
             <div className={styles.actions}>
               {apiErr ? <p className={styles.apiError}>{apiErr}</p> : null}
-              <button type="submit" className={styles.submitBtn} disabled={form.formState.isSubmitting}>
+              <button type="submit" className="btn" disabled={form.formState.isSubmitting}>
                 {form.formState.isSubmitting ? "Отправка…" : "Продолжить"}
               </button>
               <p className={styles.footerLine}>
@@ -241,7 +241,7 @@ export default function RegisterPage() {
 
             <div className={styles.actions}>
               {apiErr ? <p className={styles.apiError}>{apiErr}</p> : null}
-              <button type="submit" className={styles.submitBtn} disabled={verifyForm.formState.isSubmitting}>
+              <button type="submit" className="btn" disabled={verifyForm.formState.isSubmitting}>
                 {verifyForm.formState.isSubmitting ? "Проверка…" : "Продолжить"}
               </button>
               <button type="button" className={styles.backLink} onClick={goBackToForm}>

@@ -25,32 +25,46 @@
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.05);
 }
 
-.cardTitle {
+/* Блок «Срок подачи заявки» — как DeadlineNotificationContainer: ряд, space-between */
+.deadlineCard {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  width: 352px;
+  max-width: 100%;
+  padding: 24px;
+  box-sizing: border-box;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.1);
+  min-width: 0;
+}
+
+.deadlineLeft {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.deadlineTitle {
   font-size: 20px;
-  font-weight: 600;
+  font-weight: 550;
   line-height: 20px;
   letter-spacing: -0.6px;
   color: #262626;
-  margin: 0 0 16px;
+  margin: 0;
+  white-space: nowrap;
 }
 
-.deadlineRow {
+.timerRow {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.timer {
-  display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
-  font-weight: 500;
-  line-height: 16px;
-  letter-spacing: -0.48px;
-  color: #262626;
 }
 
 .timerIcon {
@@ -60,11 +74,26 @@
 .timerDigits {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+  font-size: 16px;
+  font-weight: 450;
+  line-height: 16px;
+  letter-spacing: -0.48px;
+  color: #262626;
 }
 
 .timerDigits span {
   white-space: nowrap;
+}
+
+.cardTitle {
+  font-size: 20px;
+  font-weight: 550;
+  line-height: 20px;
+  letter-spacing: -0.6px;
+  color: #262626;
+  margin: 0 0 16px;
 }
 
 .circularWrap {
@@ -77,99 +106,141 @@
   transition: stroke-dashoffset 0.8s ease;
 }
 
-.stepsTitle {
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: -0.6px;
-  color: #000;
-  margin: 0 0 20px;
-}
-
-.stepsTitle span {
-  font-weight: 700;
-}
-
-.stepsList {
+/* Плашка этапов — StepsContainer + StepsRow (inline-grid) */
+.stepsCard {
+  width: 352px;
+  max-width: 100%;
+  padding: 24px;
+  box-sizing: border-box;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.1);
   display: flex;
-  flex-direction: column;
-  gap: 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
 }
 
-.stepBlock {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  margin-bottom: 10px;
-}
-
-.stepBlock:last-child {
-  margin-bottom: 0;
-}
-
-.stepRow {
-  display: grid;
-  grid-template-columns: 14px 1fr;
-  column-gap: 12px;
+.stepsRow {
+  display: inline-grid;
+  grid-template-columns: max-content;
+  grid-template-rows: max-content;
+  justify-items: start;
   align-items: start;
+  width: 100%;
+  max-width: 100%;
+}
+
+.stepsListContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 20px;
+  width: 166px;
+  max-width: 100%;
+}
+
+.stepsTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.stepsTitleText {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 550;
+  line-height: 20px;
+  letter-spacing: -0.6px;
+  color: #262626;
+  white-space: nowrap;
+}
+
+/* Step List: gap 32 между активным пунктом и списком остальных */
+.stepList {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 32px;
+  width: 100%;
+  align-self: stretch;
+}
+
+.lowerSteps {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  align-self: stretch;
+}
+
+/* Пунктир в зазоре 32px между активным этапом и StepItemList */
+.connectorOverlay {
+  position: absolute;
+  left: 7px;
+  top: -32px;
+  height: 32px;
+  width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.connectorRotate {
+  flex: none;
+  transform: rotate(90deg);
+  width: 20px;
+  height: 4px;
+}
+
+.connectorSvg {
+  display: block;
+  width: 20px;
+  height: 4px;
+}
+
+.stepItemList {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  width: 100%;
+}
+
+.stepItem {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .stepDot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #e1e1e1;
   flex-shrink: 0;
-  margin-top: 4px;
-  justify-self: center;
+  display: block;
 }
 
-.stepRowActive .stepDot {
-  width: 14px;
-  height: 14px;
-  margin-top: 3px;
-  background: #98da00;
-  justify-self: center;
-}
-
-.stepText {
+.labelActive {
+  margin: 0;
   font-size: 16px;
-  font-weight: 400;
-  line-height: 20px;
+  font-weight: 450;
+  line-height: 16px;
+  letter-spacing: -0.48px;
+  color: #262626;
+  white-space: nowrap;
+}
+
+.labelInactive {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 350;
+  line-height: 16px;
   letter-spacing: -0.48px;
   color: #626262;
-  margin: 0;
-}
-
-.stepRowActive .stepText {
-  font-weight: 700;
-  color: #000;
-}
-
-/* Три точки под активным этапом — только до следующего шага */
-.stepDotsRow {
-  display: grid;
-  grid-template-columns: 14px 1fr;
-  column-gap: 12px;
-  align-items: start;
-  margin: 2px 0 8px;
-}
-
-.stepDots {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 0 0 4px;
-  width: 14px;
-  justify-self: center;
-}
-
-.stepDots span {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: #98da00;
+  white-space: nowrap;
 }
 
 .documentsList {
@@ -180,7 +251,7 @@
 
 .docItem {
   font-size: 16px;
-  font-weight: 400;
+  font-weight: 350;
   line-height: 20px;
   letter-spacing: -0.48px;
   color: #626262;

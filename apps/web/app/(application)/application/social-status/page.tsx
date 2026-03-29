@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { apiFetch, apiFetchCached, bustApiCache } from "@/lib/api-client";
 import { socialSchema } from "@/lib/validation";
+import { FileUploadField, type UploadedFileDisplay } from "@/components/application/FileUploadField";
 import { z } from "zod";
 
 type Form = z.infer<typeof socialSchema>;
@@ -14,6 +15,7 @@ export default function SocialStatusPage() {
   const [applicationId, setApplicationId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [fileMsg, setFileMsg] = useState<string | null>(null);
+  const [uploadedCert, setUploadedCert] = useState<UploadedFileDisplay | null>(null);
 
   const {
     register,
@@ -25,13 +27,21 @@ export default function SocialStatusPage() {
   useEffect(() => {
     async function load() {
       try {
-        const app = await apiFetchCached<{ application: { id: string }; sections: Record<string, { payload: unknown }> }>(
-          "/candidates/me/application",
-          2 * 60 * 1000,
-        );
+        const app = await apiFetchCached<{
+          application: { id: string };
+          sections: Record<string, { payload: unknown }>;
+          documents?: { id: string; document_type: string; original_filename: string; byte_size: number }[];
+        }>("/candidates/me/application", 2 * 60 * 1000);
         setApplicationId(app.application.id);
         const p = app.sections.social_status_cert?.payload as Form | undefined;
         if (p) reset(p);
+        const docs = app.documents?.filter((d) => d.document_type === "certificate_of_social_status") ?? [];
+        const last = docs[docs.length - 1];
+        if (last) {
+          setUploadedCert({ name: last.original_filename, sizeBytes: last.byte_size });
+        } else {
+          setUploadedCert(null);
+        }
       } catch {
         /* ignore */
       }
@@ -53,10 +63,11 @@ export default function SocialStatusPage() {
     }
   }
 
-  async function upload(file: File | null) {
+  async function onCertFile(file: File | null) {
     setFileMsg(null);
-    if (!file || !applicationId) {
-      setFileMsg("Выберите файл и дождитесь загрузки заявления.");
+    if (!file) return;
+    if (!applicationId) {
+      setFileMsg("Выберите файл после загрузки заявления.");
       return;
     }
     const fd = new FormData();
@@ -64,16 +75,26 @@ export default function SocialStatusPage() {
     fd.append("document_type", "certificate_of_social_status");
     fd.append("file", file);
     try {
-      const base = typeof window === "undefined" ? "" : "";
-      const url = `${base}/api/v1/documents/upload`;
-      const res = await fetch(url, { method: "POST", body: fd, credentials: "include" });
-      const data = await res.json().catch(() => ({}));
+      const res = await fetch("/api/v1/documents/upload", {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        original_filename?: string;
+        byte_size?: number;
+        detail?: unknown;
+      };
       if (!res.ok) {
-        setFileMsg(JSON.stringify(data));
+        setFileMsg(typeof data.detail === "string" ? data.detail : "Не удалось загрузить файл");
         return;
       }
       bustApiCache("/candidates/me");
-      setFileMsg(`Загружено: ${data.original_filename}`);
+      setUploadedCert({
+        name: data.original_filename ?? file.name,
+        sizeBytes: data.byte_size ?? file.size,
+      });
+      setFileMsg(null);
     } catch (e) {
       setFileMsg(e instanceof Error ? e.message : "Ошибка загрузки");
     }
@@ -101,10 +122,12 @@ export default function SocialStatusPage() {
 
       <div className="card grid">
         <h2 className="h2">Загрузка справки</h2>
-        <input
-          type="file"
-          accept="application/pdf,image/png,image/jpeg"
-          onChange={(e) => void upload(e.target.files?.[0] || null)}
+        <FileUploadField
+          label="Ваш документ"
+          hint="Разрешенные форматы: .PDF .JPEG .PNG .HEIC до 10MB"
+          uploadedFile={uploadedCert}
+          allowRemove={false}
+          onFile={(f) => void onCertFile(f)}
         />
         {fileMsg && <div className="muted">{fileMsg}</div>}
       </div>

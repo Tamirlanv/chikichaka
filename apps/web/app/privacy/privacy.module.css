@@ -1,0 +1,77 @@
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 24px 80px;
+}
+
+.backRow {
+  margin-bottom: 32px;
+}
+
+.article {
+  color: #262626;
+}
+
+.article p {
+  margin: 0 0 16px;
+  line-height: 1.55;
+}
+
+.lead {
+  margin-bottom: 24px;
+}
+
+.date {
+  font-size: 15px;
+  color: var(--inv-muted, #6b7280);
+  margin: 0 0 28px;
+}
+
+.section {
+  margin-bottom: 28px;
+}
+
+.section h2 {
+  font-size: 18px;
+  font-weight: 550;
+  line-height: 1.35;
+  margin: 0 0 14px;
+  color: #262626;
+}
+
+.section h3 {
+  font-size: 16px;
+  font-weight: 550;
+  line-height: 1.35;
+  margin: 20px 0 10px;
+  color: #262626;
+}
+
+.section h3:first-child {
+  margin-top: 0;
+}
+
+.list {
+  margin: 0 0 16px;
+  padding-left: 22px;
+}
+
+.list li {
+  margin-bottom: 8px;
+  line-height: 1.55;
+}
+
+.list li:last-child {
+  margin-bottom: 0;
+}
+
+.contactBlock {
+  margin-top: 8px;
+  padding-top: 24px;
+  border-top: 1px solid var(--inv-border, #e1e1e1);
+}
+
+.contactEmail {
+  font-weight: 450;
+  word-break: break-all;
+}

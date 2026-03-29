@@ -17,6 +17,8 @@ ALLOWED_MIME: dict[str, tuple[str, ...]] = {
         "application/pdf",
         "image/jpeg",
         "image/png",
+        "image/heic",
+        "image/heif",
     ),
     DocumentType.transcript.value: ("application/pdf",),
     DocumentType.portfolio.value: ("application/pdf", "image/jpeg", "image/png"),
@@ -25,7 +27,8 @@ ALLOWED_MIME: dict[str, tuple[str, ...]] = {
         "application/pdf",
         "image/jpeg",
         "image/png",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "image/heic",
+        "image/heif",
     ),
     DocumentType.motivation_upload.value: (
         "application/pdf",
@@ -42,7 +45,7 @@ MAX_BYTES: dict[str, int] = {
     DocumentType.transcript.value: 15 * 1024 * 1024,
     DocumentType.portfolio.value: 40 * 1024 * 1024,
     DocumentType.essay.value: 10 * 1024 * 1024,
-    DocumentType.supporting_documents.value: 25 * 1024 * 1024,
+    DocumentType.supporting_documents.value: 10 * 1024 * 1024,
     DocumentType.motivation_upload.value: 15 * 1024 * 1024,
     DocumentType.growth_journey_upload.value: 15 * 1024 * 1024,
 }
@@ -53,6 +56,9 @@ def _validate_file(document_type: DocumentType, filename: str, content_type: str
     if not allowed:
         raise HTTPException(status_code=400, detail="Неподдерживаемый тип документа")
     ct = (content_type or mimetypes.guess_type(filename)[0] or "").split(";")[0].strip()
+    low = (filename or "").lower()
+    if ct not in allowed and low.endswith((".heic", ".heif")):
+        ct = "image/heic" if low.endswith(".heic") else "image/heif"
     if ct not in allowed:
         raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип файла для {document_type.value}: {ct}")
     max_b = MAX_BYTES.get(document_type.value, get_settings().max_upload_bytes_default)

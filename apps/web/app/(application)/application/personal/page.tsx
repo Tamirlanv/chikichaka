@@ -252,9 +252,11 @@ export default function PersonalPage() {
         )}
       </div>
 
-      <button type="submit" className={formStyles.nextBtn} disabled={isSubmitting}>
-        {isSubmitting ? "Сохранение…" : "Далее"}
-      </button>
+      <div className={formStyles.formFooter}>
+        <button type="submit" className="btn" disabled={isSubmitting}>
+          {isSubmitting ? "Сохранение…" : "Далее"}
+        </button>
+      </div>
     </form>
   );
 }

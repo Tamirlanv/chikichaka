@@ -108,7 +108,7 @@ function LoginFormInner() {
 
           <div className={styles.actions}>
             {err ? <p className={styles.apiError}>{err}</p> : null}
-            <button type="submit" className={styles.submitBtn} disabled={isSubmitting}>
+            <button type="submit" className="btn" disabled={isSubmitting}>
               {isSubmitting ? "Вход…" : "Продолжить"}
             </button>
             <p className={styles.footerLine}>

@@ -1,0 +1,36 @@
+.instructionRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.instructionText {
+  font-size: 14px;
+  font-weight: 350;
+  line-height: 1.45;
+  color: #626262;
+  max-width: 520px;
+  margin: 0;
+}
+
+.instructionText p {
+  margin: 0 0 8px;
+}
+
+.instructionText p:last-child {
+  margin-bottom: 0;
+}
+
+/* codex_file.svg — stroke white, на чёрной кнопке без фильтра */
+.instructionBtn {
+  flex-shrink: 0;
+}
+
+.instructionBtnIcon {
+  flex-shrink: 0;
+  display: block;
+  width: 14px;
+  height: 14px;
+}

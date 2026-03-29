@@ -93,7 +93,15 @@ def compute_section_complete(
             return True
         case SectionKey.education:
             edu = validated if isinstance(validated, section_payloads.EducationSectionPayload) else None
-            return bool(edu and len(edu.entries) >= 1)
+            if not edu:
+                return False
+            if len(edu.entries) >= 1:
+                return True
+            return bool(
+                (edu.presentation_video_url or "").strip()
+                and edu.english_proof_kind
+                and edu.certificate_proof_kind
+            )
         case SectionKey.achievements_activities:
             a = validated if isinstance(validated, section_payloads.AchievementsActivitiesSectionPayload) else None
             return bool(a and len(a.activities) >= 1)

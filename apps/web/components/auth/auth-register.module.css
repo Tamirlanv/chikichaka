@@ -85,27 +85,8 @@
   gap: 8px;
 }
 
-.submitBtn {
+.actions :global(.btn) {
   width: 100%;
-  border: none;
-  border-radius: 8px;
-  background: #262626;
-  color: #fff;
-  font-size: 16px;
-  line-height: 1.25;
-  font-weight: 450;
-  padding: 12px 24px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.submitBtn:hover:not(:disabled) {
-  background: #3a3a3a;
-}
-
-.submitBtn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 
 .footerLine {

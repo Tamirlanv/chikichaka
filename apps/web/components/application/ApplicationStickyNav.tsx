@@ -9,7 +9,7 @@ const TABS = [
   { href: "/application/personal", label: "Личная информация", value: "personal" },
   { href: "/application/contact", label: "Контакты", value: "contact" },
   { href: "/application/education", label: "Образование", value: "education" },
-  { href: "/application/internal-test", label: "Внутренний тест", value: "internal_test" },
+  { href: "/application/internal-test", label: "Тест", value: "internal_test" },
   { href: "/application/motivation", label: "Мотивация", value: "motivation" },
   { href: "/application/growth", label: "Путь", value: "growth" },
   { href: "/application/portfolio", label: "Портфолио", value: "portfolio" },

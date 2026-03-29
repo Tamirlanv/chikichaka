@@ -19,7 +19,7 @@ export function ApplicationHeader({ candidateName }: Props) {
             Заполните форму, загрузите документы и отправляйте заявку
           </p>
         </div>
-        <Link href="/application/review" className={styles.submitBtn}>
+        <Link href="/application/review" className="btn">
           Отправить заявку
         </Link>
       </div>

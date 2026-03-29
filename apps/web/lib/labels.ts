@@ -32,7 +32,7 @@ export function missingItemRu(key: string): string {
     "section:personal": "Раздел «Личные данные»",
     "section:contact": "Раздел «Контакты»",
     "section:education": "Раздел «Образование»",
-    "section:internal_test": "Внутренний тест",
+    "section:internal_test": "Тест",
     "section:social_status_cert": "Справка о социальном статусе",
     "document:certificate_of_social_status": "Документ: справка о социальном статусе",
   };
@@ -44,7 +44,7 @@ export function sectionKeyRu(key: string): string {
     personal: "Личные данные",
     contact: "Контакты",
     education: "Образование",
-    internal_test: "Внутренний тест",
+    internal_test: "Тест",
     social_status_cert: "Справка о социальном статусе",
   };
   return m[key] ?? key;

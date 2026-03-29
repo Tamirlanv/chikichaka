@@ -34,7 +34,7 @@
 
 .title {
   font-size: 24px;
-  font-weight: 600;
+  font-weight: 550;
   line-height: 24px;
   letter-spacing: -0.72px;
   color: #262626;
@@ -43,44 +43,11 @@
 
 .subtitle {
   font-size: 16px;
-  font-weight: 400;
+  font-weight: 350;
   line-height: 16px;
   letter-spacing: -0.48px;
   color: #626262;
   margin: 0;
-}
-
-.submitBtn {
-  background: #262626;
-  color: #fff;
-  padding: 12px 24px;
-  border-radius: 8px;
-  border: none;
-  font-size: 14px;
-  font-weight: 400;
-  line-height: 14px;
-  letter-spacing: -0.42px;
-  cursor: pointer;
-  white-space: nowrap;
-  font-family: inherit;
-  text-decoration: none;
-  transition: background 0.2s ease;
-}
-
-.submitBtn:hover {
-  background: #4a4a4a;
-  color: #fff;
-  text-decoration: none;
-}
-
-.submitBtn:focus-visible {
-  outline: 2px solid #98da00;
-  outline-offset: 2px;
-}
-
-.submitBtn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 @media (max-width: 1400px) {
@@ -108,7 +75,7 @@
     align-items: stretch;
   }
 
-  .submitBtn {
+  .inner :global(.btn) {
     width: 100%;
   }
 }

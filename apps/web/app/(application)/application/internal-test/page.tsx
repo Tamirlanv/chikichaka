@@ -78,7 +78,7 @@ export default function InternalTestPage() {
       await saveDraft();
       await apiFetch("/internal-test/submit", { method: "POST" });
       bustApiCache("/candidates/me");
-      setMsg("Внутренний тест отправлен.");
+      setMsg("Тест отправлен.");
     } catch (e) {
       if (e instanceof ApiError) {
         setMsg(e.message);
@@ -89,7 +89,7 @@ export default function InternalTestPage() {
   return (
     <div className="card grid" style={{ maxWidth: 720 }}>
       <h1 className="h1" style={{ fontSize: 20 }}>
-        Внутренний тест
+        Тест
       </h1>
       <p className="muted" style={{ margin: 0 }}>
         Сохраняйте черновик по ходу. Отправка один раз — после отправки ответы нельзя изменить.
