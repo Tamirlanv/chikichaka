@@ -33,7 +33,8 @@ export function validateUploadFile(file: File): { ok: true } | { ok: false; mess
   }
   const mime = (file.type || "").split(";")[0].trim().toLowerCase();
   if (mime && !ALLOWED_MIME.has(mime)) {
-    if (mime === "application/octet-stream" && (ext === ".heic" || ext === ".heif")) {
+    /* Браузеры часто отдают application/octet-stream вместо реального MIME — доверяем расширению */
+    if (mime === "application/octet-stream" && EXTENSIONS.includes(ext as (typeof EXTENSIONS)[number])) {
       return { ok: true };
     }
     return {

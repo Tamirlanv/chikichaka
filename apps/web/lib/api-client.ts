@@ -23,6 +23,32 @@ async function parseJsonSafe(res: Response): Promise<unknown> {
   }
 }
 
+/** Текст ошибки из ответа FastAPI (detail: str | list | object) */
+export function formatApiErrorBody(data: unknown): string {
+  if (data === null || data === undefined) return "Ошибка запроса";
+  if (typeof data === "string") return data;
+  if (typeof data === "object" && data !== null && "detail" in data) {
+    const d = (data as { detail: unknown }).detail;
+    if (typeof d === "string") return d;
+    if (Array.isArray(d)) {
+      return d
+        .map((item) => {
+          if (typeof item === "object" && item !== null && "msg" in item) {
+            return String((item as { msg: unknown }).msg);
+          }
+          return JSON.stringify(item);
+        })
+        .join(" ");
+    }
+    if (d !== null && typeof d === "object") {
+      return JSON.stringify(d);
+    }
+    return String(d);
+  }
+  if (typeof data === "object") return JSON.stringify(data);
+  return String(data);
+}
+
 function apiBaseUrl(): string {
   if (typeof window === "undefined") {
     return apiServerBase();
@@ -52,10 +78,29 @@ export async function apiFetch<T>(
   const data = await parseJsonSafe(res);
   if (!res.ok) {
     const msg =
-      typeof data === "object" && data && "detail" in data
-        ? JSON.stringify((data as { detail: unknown }).detail)
-        : `Request failed (${res.status})`;
+      typeof data === "string"
+        ? data.slice(0, 500)
+        : data !== null && typeof data === "object"
+          ? formatApiErrorBody(data)
+          : `Request failed (${res.status})`;
     throw new ApiError(msg, res.status, data);
+  }
+  return data as T;
+}
+
+/** Multipart POST /api/v1/documents/upload (credentials, без Content-Type — boundary задаёт браузер). */
+export async function uploadDocumentForm<T extends Record<string, unknown>>(fd: FormData): Promise<T> {
+  const base = apiBaseUrl();
+  const url = `${base}/api/v1/documents/upload`;
+  const res = await fetch(url, {
+    method: "POST",
+    body: fd,
+    credentials: "include",
+    cache: "no-store",
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok) {
+    throw new ApiError(formatApiErrorBody(data), res.status, data);
   }
   return data as T;
 }

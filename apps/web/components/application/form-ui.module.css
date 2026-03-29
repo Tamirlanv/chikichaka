@@ -275,6 +275,15 @@
   color: #626262;
 }
 
+.uploadFileCardStatus {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 450;
+  line-height: 14px;
+  letter-spacing: -0.03em;
+  color: #98da00;
+}
+
 .uploadFileDelete {
   flex-shrink: 0;
   display: inline-flex;
@@ -300,6 +309,11 @@
 .uploadFileDelete:hover {
   background: #fff5f5;
   border-color: #fecaca;
+}
+
+.uploadFileDelete:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .uploadFileDelete:focus-visible {

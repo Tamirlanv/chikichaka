@@ -1,0 +1,284 @@
+.backBtn {
+  position: absolute;
+  left: 24px;
+  top: 24px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  margin: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #262626;
+  transition: opacity 0.2s ease;
+}
+
+.backBtn:hover {
+  opacity: 0.7;
+}
+
+.wizardColumn {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+}
+
+.programStack {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 24px;
+}
+
+.programCard {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 90px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 16px;
+  cursor: pointer;
+  text-align: left;
+  background: #fff;
+  transition:
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.programCard:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  background: #f9fff0;
+}
+
+.programCardSelected {
+  background: #f0ffd4;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  transform: scale(1.02);
+}
+
+.programCardBorder {
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  border: 1px solid #e1e1e1;
+  pointer-events: none;
+  transition: border-color 0.2s ease;
+}
+
+.programCardSelected .programCardBorder {
+  border-color: #98da00;
+}
+
+.programCardInner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.programIcon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+}
+
+.programIcon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.programLabel {
+  margin: 0;
+  font-size: 24px;
+  line-height: 24px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  color: #262626;
+  white-space: nowrap;
+}
+
+.programLabelSelected {
+  color: #4e7000;
+}
+
+.checkWrap {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #98da00;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.continueBtn {
+  width: 100%;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 14px;
+  font-weight: 350;
+  letter-spacing: -0.03em;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.continueBtnEnabled {
+  background: #262626;
+  color: #fff;
+}
+
+.continueBtnEnabled:hover {
+  background: #3a3a3a;
+}
+
+.continueBtnDisabled {
+  background: #e1e1e1;
+  color: #a0a0a0;
+  cursor: not-allowed;
+}
+
+.footerSmall {
+  margin: 0;
+  font-size: 12px;
+  line-height: 12px;
+  font-weight: 350;
+  letter-spacing: -0.03em;
+  color: #4e7000;
+}
+
+.footerSmallUnderline {
+  text-decoration: underline;
+  text-decoration-skip-ink: none;
+}
+
+/* Страница «Выберите специальность»: колонка и строки 371×40, текст 16px */
+.wizardColumnSpecialty {
+  width: 100%;
+  max-width: 371px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+}
+
+.specialtyStack {
+  width: 371px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 24px;
+}
+
+.specialtyCard {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 371px;
+  max-width: 100%;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  background: #fff;
+  transition:
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.specialtyCard:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  background: #f9fff0;
+}
+
+.specialtyCardSelected {
+  background: #f0ffd4;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.specialtyCardBorder {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  border: 1px solid #e1e1e1;
+  pointer-events: none;
+  transition: border-color 0.2s ease;
+}
+
+.specialtyCardSelected .specialtyCardBorder {
+  border-color: #98da00;
+}
+
+.specialtyCardInner {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  padding-right: 8px;
+}
+
+.specialtyLabel {
+  margin: 0;
+  font-size: 16px;
+  line-height: 20px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  color: #262626;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.specialtyLabelSelected {
+  color: #4e7000;
+}
+
+.specialtyCheckWrap {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #98da00;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (max-width: 900px) {
+  .backBtn {
+    left: 16px;
+    top: max(12px, env(safe-area-inset-top));
+  }
+
+  .wizardColumn {
+    gap: 24px;
+  }
+
+  .wizardColumnSpecialty {
+    gap: 24px;
+  }
+
+  .programLabel {
+    font-size: 20px;
+    line-height: 1.2;
+    white-space: normal;
+  }
+}

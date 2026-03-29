@@ -20,6 +20,7 @@ class PersonalSectionPayload(BaseModel):
     city: str | None = Field(default=None, max_length=128)
     region: str | None = Field(default=None, max_length=128)
     short_self_introduction: str | None = Field(default=None, max_length=2000)
+    identity_document_id: UUID | None = None
 
 
 class ContactSectionPayload(BaseModel):

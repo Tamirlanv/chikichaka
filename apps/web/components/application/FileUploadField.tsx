@@ -18,6 +18,8 @@ type Props = {
   onFile?: (file: File | null) => void;
   /** Карточка загруженного файла (имя и размер с сервера или после выбора) */
   uploadedFile?: UploadedFileDisplay | null;
+  /** Идёт отправка на сервер */
+  isUploading?: boolean;
   /** Показать кнопку «Удалить» (если сброс на сервере не поддержан — false) */
   allowRemove?: boolean;
 };
@@ -28,6 +30,7 @@ export function FileUploadField({
   accept = ".pdf,.jpg,.jpeg,.png,.heic,.heif",
   onFile,
   uploadedFile,
+  isUploading = false,
   allowRemove = true,
 }: Props) {
   const id = useId();
@@ -60,6 +63,7 @@ export function FileUploadField({
   }
 
   const showCard = Boolean(uploadedFile);
+  const removeDisabled = isUploading;
 
   return (
     <div className={styles.uploadRoot}>
@@ -110,11 +114,15 @@ export function FileUploadField({
           <div className={styles.uploadFileCardBody}>
             <p className={styles.uploadFileCardName}>{uploadedFile.name}</p>
             <p className={styles.uploadFileCardSize}>{formatFileSize(uploadedFile.sizeBytes)}</p>
+            {isUploading ? (
+              <p className={styles.uploadFileCardStatus}>Загрузка на сервер…</p>
+            ) : null}
           </div>
           {allowRemove ? (
             <button
               type="button"
               className={styles.uploadFileDelete}
+              disabled={removeDisabled}
               onClick={() => processFile(null)}
             >
               <Image

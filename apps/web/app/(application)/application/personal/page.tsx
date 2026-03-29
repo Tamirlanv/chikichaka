@@ -1,19 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { apiFetch, apiFetchCached, bustApiCache } from "@/lib/api-client";
+import { apiFetch, apiFetchCached, ApiError, bustApiCache, uploadDocumentForm } from "@/lib/api-client";
 import { personalSchema } from "@/lib/validation";
 import { PillSegmentedControl } from "@/components/application/PillSegmentedControl";
 import { FormSection } from "@/components/application/FormSection";
 import { FormField } from "@/components/application/FormField";
 import { Divider } from "@/components/application/Divider";
 import { SelectField } from "@/components/application/SelectField";
-import { FileUploadField } from "@/components/application/FileUploadField";
+import { FileUploadField, type UploadedFileDisplay } from "@/components/application/FileUploadField";
 import { ConsentCheckbox } from "@/components/application/ConsentCheckbox";
 import formStyles from "@/components/application/form-ui.module.css";
 
@@ -40,9 +40,22 @@ const personalFormSchema = personalSchema.extend({
   guardian_phone: z.string().optional(),
   consent_privacy: z.boolean().refine((v) => v === true, { message: "Необходимо согласие" }),
   consent_age: z.boolean().refine((v) => v === true, { message: "Необходимо подтверждение" }),
+  identity_document_id: z.string().optional(),
 });
 
 type PersonalForm = z.infer<typeof personalFormSchema>;
+
+type DocRow = { id: string; document_type: string; original_filename: string; byte_size: number };
+
+function isUuid(s: string | undefined): s is string {
+  return !!s && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
+}
+
+function docMetaForId(docs: DocRow[], docId: string | undefined): UploadedFileDisplay | null {
+  if (!docId) return null;
+  const d = docs.find((x) => x.id === docId);
+  return d ? { name: d.original_filename, sizeBytes: d.byte_size } : null;
+}
 
 const FORM_DEFAULTS: Partial<PersonalForm> = {
   citizenship: "KZ",
@@ -54,26 +67,104 @@ const FORM_DEFAULTS: Partial<PersonalForm> = {
 
 export default function PersonalPage() {
   const router = useRouter();
+  const [applicationId, setApplicationId] = useState<string | null>(null);
+  const [identityFileMeta, setIdentityFileMeta] = useState<UploadedFileDisplay | null>(null);
+  const [identityUploading, setIdentityUploading] = useState(false);
+  const [pageMsg, setPageMsg] = useState<string | null>(null);
+
   const {
     register,
     handleSubmit,
     control,
     reset,
+    setValue,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<PersonalForm>({
     resolver: zodResolver(personalFormSchema),
     defaultValues: FORM_DEFAULTS as PersonalForm,
   });
 
+  const uploadIdentityDocument = useCallback(
+    async (file: File | null) => {
+      if (!file) {
+        if (!applicationId) return;
+        try {
+          const v = getValues();
+          await apiFetch("/candidates/me/application/sections/personal", {
+            method: "PATCH",
+            json: {
+              payload: {
+                preferred_first_name: v.preferred_first_name,
+                preferred_last_name: v.preferred_last_name,
+                date_of_birth: v.date_of_birth || undefined,
+                pronouns: v.pronouns || undefined,
+                middle_name: v.middle_name || undefined,
+                gender: v.gender,
+                identity_document_id: null,
+              },
+            },
+          });
+          setValue("identity_document_id", undefined, { shouldValidate: true, shouldDirty: true });
+          setIdentityFileMeta(null);
+          bustApiCache("/candidates/me");
+          setPageMsg(null);
+        } catch (e) {
+          setPageMsg(e instanceof Error ? e.message : "Не удалось удалить файл");
+        }
+        return;
+      }
+
+      if (!applicationId) {
+        setPageMsg("Не удалось определить заявление. Обновите страницу.");
+        return;
+      }
+
+      const rollback = identityFileMeta;
+      setIdentityFileMeta({ name: file.name, sizeBytes: file.size });
+      setIdentityUploading(true);
+      setPageMsg(null);
+
+      const fd = new FormData();
+      fd.append("application_id", applicationId);
+      fd.append("document_type", "supporting_documents");
+      fd.append("file", file);
+      try {
+        const data = await uploadDocumentForm<{
+          id: string;
+          original_filename?: string;
+          byte_size?: number;
+        }>(fd);
+        setValue("identity_document_id", data.id, { shouldValidate: true, shouldDirty: true });
+        setIdentityFileMeta({
+          name: data.original_filename ?? file.name,
+          sizeBytes: data.byte_size ?? file.size,
+        });
+        bustApiCache("/candidates/me");
+        setPageMsg(null);
+      } catch (e) {
+        setIdentityFileMeta(rollback);
+        setPageMsg(e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Не удалось загрузить файл");
+      } finally {
+        setIdentityUploading(false);
+      }
+    },
+    [applicationId, getValues, identityFileMeta, setValue],
+  );
+
   useEffect(() => {
     async function load() {
       try {
-        const app = await apiFetchCached<{ sections: Record<string, { payload: unknown }> }>(
-          "/candidates/me/application",
-          2 * 60 * 1000,
-        );
+        const app = await apiFetchCached<{
+          application: { id: string };
+          sections: Record<string, { payload: unknown }>;
+          documents?: DocRow[];
+        }>("/candidates/me/application", 2 * 60 * 1000);
+        setApplicationId(app.application.id);
         const raw = app.sections.personal?.payload as Record<string, unknown> | undefined;
+        const docs = app.documents ?? [];
         if (!raw) return;
+        const idDoc = raw.identity_document_id != null ? String(raw.identity_document_id) : undefined;
         reset({
           ...FORM_DEFAULTS,
           preferred_first_name: String(raw.preferred_first_name ?? ""),
@@ -82,9 +173,11 @@ export default function PersonalPage() {
           pronouns: raw.pronouns ? String(raw.pronouns) : "",
           middle_name: raw.middle_name != null ? String(raw.middle_name) : "",
           gender: raw.gender === "female" ? "female" : "male",
+          identity_document_id: idDoc,
         } as PersonalForm);
+        setIdentityFileMeta(docMetaForId(docs, idDoc));
       } catch {
-        /* ignore */
+        setPageMsg("Не удалось загрузить данные заявления. Обновите страницу.");
       }
     }
     void load();
@@ -99,6 +192,7 @@ export default function PersonalPage() {
       pronouns: data.pronouns || undefined,
       middle_name: data.middle_name || undefined,
       gender: data.gender,
+      identity_document_id: isUuid(data.identity_document_id) ? data.identity_document_id : undefined,
     };
     await apiFetch("/candidates/me/application/sections/personal", {
       method: "PATCH",
@@ -110,6 +204,11 @@ export default function PersonalPage() {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate>
+      {pageMsg ? (
+        <p className="error" role="alert" style={{ margin: "0 0 16px" }}>
+          {pageMsg}
+        </p>
+      ) : null}
       <FormSection title="Основная информация">
         <div className={formStyles.row3}>
           <FormField label="Фамилия" placeholder="Введите фамилию" {...register("preferred_last_name")} />
@@ -183,7 +282,14 @@ export default function PersonalPage() {
           <FormField label="Дата выдачи" placeholder="ДД.ММ.ГГГГ" {...register("document_issue_date")} />
           <FormField label="Выдан" placeholder="Введите кем выдан" {...register("document_issued_by")} />
         </div>
-        <FileUploadField label="Ваш документ" />
+        <input type="hidden" {...register("identity_document_id")} />
+        <FileUploadField
+          label="Ваш документ"
+          hint="Разрешенные форматы: .PDF .JPEG .PNG .HEIC до 10MB"
+          uploadedFile={identityFileMeta}
+          isUploading={identityUploading}
+          onFile={(f) => void uploadIdentityDocument(f)}
+        />
       </FormSection>
 
       <Divider />

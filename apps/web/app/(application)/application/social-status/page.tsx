@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { apiFetch, apiFetchCached, bustApiCache } from "@/lib/api-client";
+import { apiFetch, apiFetchCached, ApiError, bustApiCache, uploadDocumentForm } from "@/lib/api-client";
 import { socialSchema } from "@/lib/validation";
 import { FileUploadField, type UploadedFileDisplay } from "@/components/application/FileUploadField";
 import { z } from "zod";
@@ -16,6 +16,7 @@ export default function SocialStatusPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [fileMsg, setFileMsg] = useState<string | null>(null);
   const [uploadedCert, setUploadedCert] = useState<UploadedFileDisplay | null>(null);
+  const [certUploading, setCertUploading] = useState(false);
 
   const {
     register,
@@ -43,7 +44,7 @@ export default function SocialStatusPage() {
           setUploadedCert(null);
         }
       } catch {
-        /* ignore */
+        setFileMsg("Не удалось загрузить данные заявления. Обновите страницу.");
       }
     }
     void load();
@@ -70,25 +71,20 @@ export default function SocialStatusPage() {
       setFileMsg("Выберите файл после загрузки заявления.");
       return;
     }
+    const rollback = uploadedCert;
+    setUploadedCert({ name: file.name, sizeBytes: file.size });
+    setCertUploading(true);
+    setFileMsg(null);
+
     const fd = new FormData();
     fd.append("application_id", applicationId);
     fd.append("document_type", "certificate_of_social_status");
     fd.append("file", file);
     try {
-      const res = await fetch("/api/v1/documents/upload", {
-        method: "POST",
-        body: fd,
-        credentials: "include",
-      });
-      const data = (await res.json().catch(() => ({}))) as {
+      const data = await uploadDocumentForm<{
         original_filename?: string;
         byte_size?: number;
-        detail?: unknown;
-      };
-      if (!res.ok) {
-        setFileMsg(typeof data.detail === "string" ? data.detail : "Не удалось загрузить файл");
-        return;
-      }
+      }>(fd);
       bustApiCache("/candidates/me");
       setUploadedCert({
         name: data.original_filename ?? file.name,
@@ -96,7 +92,10 @@ export default function SocialStatusPage() {
       });
       setFileMsg(null);
     } catch (e) {
-      setFileMsg(e instanceof Error ? e.message : "Ошибка загрузки");
+      setUploadedCert(rollback);
+      setFileMsg(e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Ошибка загрузки");
+    } finally {
+      setCertUploading(false);
     }
   }
 
@@ -122,14 +121,19 @@ export default function SocialStatusPage() {
 
       <div className="card grid">
         <h2 className="h2">Загрузка справки</h2>
+        {fileMsg ? (
+          <p className="error" role="alert" style={{ margin: 0 }}>
+            {fileMsg}
+          </p>
+        ) : null}
         <FileUploadField
           label="Ваш документ"
           hint="Разрешенные форматы: .PDF .JPEG .PNG .HEIC до 10MB"
           uploadedFile={uploadedCert}
+          isUploading={certUploading}
           allowRemove={false}
           onFile={(f) => void onCertFile(f)}
         />
-        {fileMsg && <div className="muted">{fileMsg}</div>}
       </div>
 
       <Link className="btn secondary" href="/application/review" style={{ alignSelf: "flex-start" }}>

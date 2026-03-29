@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { apiFetch, apiFetchCached, bustApiCache } from "@/lib/api-client";
+import { apiFetch, apiFetchCached, ApiError, bustApiCache, uploadDocumentForm } from "@/lib/api-client";
 import { educationSchema } from "@/lib/validation";
 import { FormSection } from "@/components/application/FormSection";
 import { Divider } from "@/components/application/Divider";
@@ -55,6 +55,7 @@ export default function EducationPage() {
     certificate: null,
     additional: null,
   });
+  const [uploadingKind, setUploadingKind] = useState<FileKind | null>(null);
 
   const {
     register,
@@ -71,7 +72,6 @@ export default function EducationPage() {
 
   const uploadDocument = useCallback(
     async (file: File | null, documentType: string, kind: FileKind) => {
-      if (!applicationId) return;
       const field =
         kind === "english"
           ? "english_document_id"
@@ -80,6 +80,7 @@ export default function EducationPage() {
             : "additional_document_id";
 
       if (!file) {
+        if (!applicationId) return;
         try {
           const v = getValues();
           const payload = {
@@ -126,26 +127,29 @@ export default function EducationPage() {
         return;
       }
 
+      if (!applicationId) {
+        setMsg("Не удалось определить заявление. Обновите страницу.");
+        return;
+      }
+
+      const rollback = fileMeta[kind];
+      setFileMeta((prev) => ({
+        ...prev,
+        [kind]: { name: file.name, sizeBytes: file.size },
+      }));
+      setUploadingKind(kind);
+      setMsg(null);
+
       const fd = new FormData();
       fd.append("application_id", applicationId);
       fd.append("document_type", documentType);
       fd.append("file", file);
-      const res = await fetch("/api/v1/documents/upload", {
-        method: "POST",
-        body: fd,
-        credentials: "include",
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        id?: string;
-        original_filename?: string;
-        byte_size?: number;
-        detail?: unknown;
-      };
-      if (!res.ok) {
-        setMsg(typeof data.detail === "string" ? data.detail : "Не удалось загрузить файл");
-        return;
-      }
-      if (data.id) {
+      try {
+        const data = await uploadDocumentForm<{
+          id: string;
+          original_filename?: string;
+          byte_size?: number;
+        }>(fd);
         setValue(field, data.id, { shouldValidate: true, shouldDirty: true });
         setFileMeta((prev) => ({
           ...prev,
@@ -156,9 +160,14 @@ export default function EducationPage() {
         }));
         bustApiCache("/candidates/me");
         setMsg(null);
+      } catch (e) {
+        setFileMeta((prev) => ({ ...prev, [kind]: rollback }));
+        setMsg(e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Не удалось загрузить файл");
+      } finally {
+        setUploadingKind((prev) => (prev === kind ? null : prev));
       }
     },
-    [applicationId, getValues, setValue],
+    [applicationId, fileMeta, getValues, setValue],
   );
 
   useEffect(() => {
@@ -238,7 +247,7 @@ export default function EducationPage() {
           ),
         });
       } catch {
-        /* ignore */
+        setMsg("Не удалось загрузить данные заявления. Обновите страницу.");
       }
     }
     void load();
@@ -280,6 +289,11 @@ export default function EducationPage() {
       <h1 className="h1" style={{ fontSize: 20, marginBottom: 24 }}>
         Образование
       </h1>
+      {msg ? (
+        <p className="error" role="alert" style={{ margin: "0 0 16px" }}>
+          {msg}
+        </p>
+      ) : null}
 
       <FormSection title="Персональная презентация">
         <div className={formStyles.field} style={{ width: "100%" }}>
@@ -350,6 +364,7 @@ export default function EducationPage() {
           label="Ваш документ"
           hint="Разрешенные форматы: .PDF .JPEG .PNG .HEIC до 10MB"
           uploadedFile={fileMeta.english}
+          isUploading={uploadingKind === "english"}
           onFile={(f) => void uploadDocument(f, "supporting_documents", "english")}
         />
       </FormSection>
@@ -380,6 +395,7 @@ export default function EducationPage() {
           label="Ваш документ"
           hint="Разрешенные форматы: .PDF .JPEG .PNG .HEIC до 10MB"
           uploadedFile={fileMeta.certificate}
+          isUploading={uploadingKind === "certificate"}
           onFile={(f) => void uploadDocument(f, "supporting_documents", "certificate")}
         />
       </FormSection>
@@ -395,6 +411,7 @@ export default function EducationPage() {
           label="Ваш документ"
           hint="Разрешенные форматы: .PDF .JPEG .PNG .HEIC до 10MB"
           uploadedFile={fileMeta.additional}
+          isUploading={uploadingKind === "additional"}
           onFile={(f) => void uploadDocument(f, "supporting_documents", "additional")}
         />
       </FormSection>
@@ -434,8 +451,6 @@ export default function EducationPage() {
           </p>
         )}
       </div>
-
-      {msg && <p className="muted">{msg}</p>}
 
       <div className={formStyles.formFooter}>
         <button className="btn" type="submit" disabled={isSubmitting}>

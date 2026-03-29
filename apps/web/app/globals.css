@@ -250,19 +250,6 @@ a.btn.accent {
   gap: var(--space-block);
 }
 
-.home-hero {
-  padding: clamp(40px, 8vw, 72px) 0 clamp(48px, 10vw, 96px);
-}
-
-.home-hero .h1 {
-  margin-bottom: 16px;
-}
-
-.home-hero .muted {
-  max-width: 560px;
-  margin-bottom: 28px;
-}
-
 .card.card--nested {
   background: var(--inv-bg-subtle);
   box-shadow: none;

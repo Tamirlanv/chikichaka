@@ -226,6 +226,9 @@ def save_section(
         p = validated if isinstance(validated, section_payloads.PersonalSectionPayload) else None
         if not p:
             raise HTTPException(status_code=400, detail="Некорректные данные раздела «Личные данные»")
+        _validate_optional_motivation_growth_doc(
+            db, app.id, p.identity_document_id, DocumentType.supporting_documents.value
+        )
         profile.first_name = p.preferred_first_name
         profile.last_name = p.preferred_last_name
         out_payload = p.model_dump(mode="json")

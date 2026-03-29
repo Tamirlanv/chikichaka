@@ -55,8 +55,11 @@ def _validate_file(document_type: DocumentType, filename: str, content_type: str
     allowed = ALLOWED_MIME.get(document_type.value)
     if not allowed:
         raise HTTPException(status_code=400, detail="Неподдерживаемый тип документа")
-    ct = (content_type or mimetypes.guess_type(filename)[0] or "").split(";")[0].strip()
+    ct = (content_type or "").split(";")[0].strip()
     low = (filename or "").lower()
+    guessed = (mimetypes.guess_type(filename)[0] or "").split(";")[0].strip()
+    if not ct or ct == "application/octet-stream":
+        ct = guessed or ct
     if ct not in allowed and low.endswith((".heic", ".heif")):
         ct = "image/heic" if low.endswith(".heic") else "image/heif"
     if ct not in allowed:

@@ -24,8 +24,9 @@ class LocalStorageBackend:
     def put(self, *, application_id: uuid.UUID, original_filename: str, data: bytes, content_type: str) -> str:
         ext = Path(original_filename).suffix[:16] or ""
         safe = f"{uuid.uuid4().hex}{ext}"
-        rel = f"{application_id}/{safe}"
-        dest = self._root / application_id
+        app_part = str(application_id)
+        rel = f"{app_part}/{safe}"
+        dest = self._root / app_part
         dest.mkdir(parents=True, exist_ok=True)
         full = self._root / rel
         full.write_bytes(data)
