@@ -1,6 +1,6 @@
 # inVision U — Admissions Platform
 
-Monorepo: **Next.js (App Router)** candidate portal + **FastAPI** API + **PostgreSQL** + **Redis**.
+Monorepo: **Next.js (App Router)** candidate portal + **FastAPI** API + **PostgreSQL** + **Redis**
 
 ## Prerequisites
 
