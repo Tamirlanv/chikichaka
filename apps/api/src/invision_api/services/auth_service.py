@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -22,13 +23,16 @@ from invision_api.models.application import VerificationRecord
 from invision_api.repositories import role_repository, user_repository
 from invision_api.repositories.application_repository import create_initial_application
 
+logger = logging.getLogger(__name__)
+
 
 def _send_verification_email(to_email: str, code: str) -> None:
     settings = get_settings()
     if not settings.resend_api_key:
+        logger.warning("RESEND_API_KEY is not set; cannot send verification email")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Отправка почты не настроена (RESEND_API_KEY).",
+            detail="Отправка почты временно недоступна. Попробуйте позже.",
         )
     resend.api_key = settings.resend_api_key
     params = {
@@ -85,11 +89,15 @@ def register_candidate(
 
     try:
         _send_verification_email(normalized, code)
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as exc:
         db.rollback()
+        logger.warning("Verification email send failed for %s: %s", normalized, exc, exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Не удалось отправить письмо с кодом: {exc}",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Не удалось отправить письмо с кодом. Попробуйте позже или обратитесь в поддержку.",
         ) from exc
 
     db.commit()

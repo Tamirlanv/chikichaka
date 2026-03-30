@@ -1,13 +1,19 @@
 import { apiServerBase } from "./config";
 import { getCached, setCached } from "./api-cache";
+import { getUserFacingMessage } from "./user-facing-errors";
 
 export { bustApiCache } from "./api-cache";
 
 export class ApiError extends Error {
   status: number;
   body: unknown;
-  constructor(message: string, status: number, body: unknown) {
-    super(message);
+  /** Сырой текст из API (для отладки; в UI использовать только `message`). */
+  rawDetail: string;
+
+  constructor(rawDetail: string, status: number, body: unknown) {
+    super(getUserFacingMessage(status, rawDetail));
+    this.name = "ApiError";
+    this.rawDetail = rawDetail;
     this.status = status;
     this.body = body;
   }
