@@ -6,7 +6,7 @@ const RESOURCES = [
   {
     button: "GitHub inVision",
     description: "GitHub репозитории",
-    link: "https://github.com",
+    link: "https://github.com/mi-llen-nial/inVisionU",
   },
   {
     button: "Google Disk",
@@ -16,7 +16,7 @@ const RESOURCES = [
   {
     button: "Google Disk",
     description: "Документация решения",
-    link: "https://drive.google.com",
+    link: "https://drive.google.com/drive/folders/1Y0eQFydfT9o2MaWy7dlakuR1KfiQywtk?usp=sharing",
   },
   {
     button: "Telegram Bot",
