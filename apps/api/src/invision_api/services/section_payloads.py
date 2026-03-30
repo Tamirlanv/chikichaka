@@ -1,5 +1,6 @@
 """Pydantic validation for application section JSON payloads."""
 
+import re
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
@@ -7,6 +8,32 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from invision_api.models.enums import SectionKey
+
+_DD_MM_YYYY = re.compile(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$")
+
+
+def parse_optional_date(v: Any) -> date | None:
+    """Accept ISO date/datetime strings or DD.MM.YYYY as sent by the web form layer."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return None
+        m = _DD_MM_YYYY.match(s)
+        if m:
+            day, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            return date(year, month, day)
+        if "T" in s:
+            return datetime.fromisoformat(s.replace("Z", "+00:00")).date()
+        if len(s) >= 10 and s[4] == "-":
+            return date.fromisoformat(s[:10])
+        return date.fromisoformat(s)
+    raise ValueError(f"invalid date value: {v!r}")
 
 
 class PersonalSectionPayload(BaseModel):
@@ -21,6 +48,11 @@ class PersonalSectionPayload(BaseModel):
     region: str | None = Field(default=None, max_length=128)
     short_self_introduction: str | None = Field(default=None, max_length=2000)
     identity_document_id: UUID | None = None
+
+    @field_validator("date_of_birth", mode="before")
+    @classmethod
+    def parse_date_of_birth(cls, v: Any) -> date | None:
+        return parse_optional_date(v)
 
 
 class ContactSectionPayload(BaseModel):
@@ -57,6 +89,11 @@ class EducationItemPayload(BaseModel):
     honors_or_awards: str | None = Field(default=None, max_length=500)
     coursework_highlights: str | None = Field(default=None, max_length=2000)
 
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def parse_education_item_dates(cls, v: Any) -> date | None:
+        return parse_optional_date(v)
+
 
 class EducationSectionPayload(BaseModel):
     entries: list[EducationItemPayload] = Field(default_factory=list, max_length=20)
@@ -77,6 +114,11 @@ class AchievementActivityItem(BaseModel):
     role: str | None = Field(default=None, max_length=255)
     impact_summary: str | None = Field(default=None, max_length=2000)
     reference_contact: str | None = Field(default=None, max_length=500)
+
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def parse_activity_dates(cls, v: Any) -> date | None:
+        return parse_optional_date(v)
 
 
 class AchievementsActivitiesSectionPayload(BaseModel):

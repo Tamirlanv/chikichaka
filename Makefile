@@ -7,7 +7,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help install install-frontend install-api infra frontend backend worker migrate init-db seed docker-up docker-down
+.PHONY: help install install-frontend install-api infra frontend backend worker migrate init-db seed docker-up docker-down smoke
 
 help:
 	@echo "inVision U — commands"
@@ -27,6 +27,7 @@ help:
 	@echo ""
 	@echo "  make docker-up        - docker compose up --build (full stack)"
 	@echo "  make docker-down      - docker compose down"
+	@echo "  make smoke            - pytest (API) + vitest (web)"
 	@echo ""
 	@echo "Direct scripts (same as above): ./scripts/frontend.sh, ./scripts/backend.sh, …"
 
@@ -64,3 +65,6 @@ docker-up:
 
 docker-down:
 	@bash scripts/docker-down.sh
+
+smoke:
+	@bash scripts/smoke.sh

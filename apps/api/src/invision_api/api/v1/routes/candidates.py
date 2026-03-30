@@ -2,7 +2,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from invision_api.api.deps import require_roles
@@ -145,7 +145,10 @@ def patch_section(
         key = SectionKey(section_key)
     except ValueError:
         raise HTTPException(status_code=400, detail="Неизвестный раздел")
-    row = application_service.save_section(db, user, key, body.payload)
+    try:
+        row = application_service.save_section(db, user, key, body.payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
     return {
         "section_key": row.section_key,
         "is_complete": row.is_complete,
