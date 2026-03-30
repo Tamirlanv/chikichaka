@@ -25,4 +25,5 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["uvicorn", "invision_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Apply DB migrations on each container start so deploys pick up new Alembic revisions.
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn invision_api.main:app --host 0.0.0.0 --port 8000"]
