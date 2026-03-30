@@ -91,12 +91,29 @@ export default function PersonalPage() {
         if (!applicationId) return;
         try {
           const v = getValues();
+          let firstName = (v.preferred_first_name ?? "").trim();
+          let lastName = (v.preferred_last_name ?? "").trim();
+
+          if (!firstName || !lastName) {
+            const app = await apiFetch<{ sections: Record<string, { payload: unknown }> }>("/candidates/me/application");
+            const raw = app.sections.personal?.payload as Record<string, unknown> | undefined;
+            if (raw) {
+              if (!firstName) firstName = String(raw.preferred_first_name ?? "").trim();
+              if (!lastName) lastName = String(raw.preferred_last_name ?? "").trim();
+            }
+          }
+
+          if (!firstName || !lastName) {
+            setPageMsg("Невозможно удалить файл: заполните имя и фамилию в разделе «Основная информация».");
+            return;
+          }
+
           await apiFetch("/candidates/me/application/sections/personal", {
             method: "PATCH",
             json: {
               payload: {
-                preferred_first_name: v.preferred_first_name,
-                preferred_last_name: v.preferred_last_name,
+                preferred_first_name: firstName,
+                preferred_last_name: lastName,
                 date_of_birth: v.date_of_birth || undefined,
                 pronouns: v.pronouns || undefined,
                 middle_name: v.middle_name || undefined,
@@ -216,7 +233,13 @@ export default function PersonalPage() {
           <FormField label="Отчество" placeholder="Введите отчество" {...register("middle_name")} />
         </div>
         <div className={formStyles.row3}>
-          <FormField label="Дата рождения" placeholder="ДД.ММ.ГГГГ" type="text" {...register("date_of_birth")} />
+          <FormField
+            label="Дата рождения"
+            placeholder="ДД.ММ.ГГГГ"
+            type="text"
+            fieldType="date"
+            {...register("date_of_birth")}
+          />
           <div className={`${formStyles.field} ${formStyles.fieldSpan2}`}>
             <span className={formStyles.label}>Пол</span>
             <Controller
@@ -255,7 +278,7 @@ export default function PersonalPage() {
               { value: "OTHER", label: "Другое" },
             ]}
           />
-          <FormField label="ИИН" placeholder="Введите ИИН" {...register("iin")} />
+          <FormField label="ИИН" placeholder="Введите ИИН" fieldType="iin" {...register("iin")} />
         </div>
         <div className={formStyles.row3}>
           <div className={formStyles.field}>
@@ -279,7 +302,7 @@ export default function PersonalPage() {
         </div>
         <div className={formStyles.row3}>
           <FormField label="Номер документа" placeholder="Введите номер документа" {...register("document_number")} />
-          <FormField label="Дата выдачи" placeholder="ДД.ММ.ГГГГ" {...register("document_issue_date")} />
+          <FormField label="Дата выдачи" placeholder="ДД.ММ.ГГГГ" fieldType="date" {...register("document_issue_date")} />
           <FormField label="Выдан" placeholder="Введите кем выдан" {...register("document_issued_by")} />
         </div>
         <input type="hidden" {...register("identity_document_id")} />
@@ -302,7 +325,7 @@ export default function PersonalPage() {
           <FormField label="Отчество" placeholder="Введите отчество" {...register("father_middle")} />
         </div>
         <div className={formStyles.row3}>
-          <FormField label="Номер телефона" placeholder="+7" type="tel" {...register("father_phone")} />
+          <FormField label="Номер телефона" placeholder="+7 777 123 45 67" type="tel" fieldType="phone" {...register("father_phone")} />
         </div>
 
         <h3 className={formStyles.subheading}>Мать</h3>
@@ -312,7 +335,7 @@ export default function PersonalPage() {
           <FormField label="Отчество" placeholder="Введите отчество" {...register("mother_middle")} />
         </div>
         <div className={formStyles.row3}>
-          <FormField label="Номер телефона" placeholder="+7" type="tel" {...register("mother_phone")} />
+          <FormField label="Номер телефона" placeholder="+7 777 123 45 67" type="tel" fieldType="phone" {...register("mother_phone")} />
         </div>
 
         <h3 className={formStyles.subheading}>Опекун</h3>
@@ -322,7 +345,13 @@ export default function PersonalPage() {
           <FormField label="Отчество" placeholder="Введите отчество" {...register("guardian_middle")} />
         </div>
         <div className={formStyles.row3}>
-          <FormField label="Номер телефона" placeholder="+7" type="tel" {...register("guardian_phone")} />
+          <FormField
+            label="Номер телефона"
+            placeholder="+7 777 123 45 67"
+            type="tel"
+            fieldType="phone"
+            {...register("guardian_phone")}
+          />
         </div>
       </FormSection>
 
@@ -357,6 +386,8 @@ export default function PersonalPage() {
           <p style={{ color: "#dc2626", fontSize: 14, margin: 0 }}>{errors.consent_age.message}</p>
         )}
       </div>
+
+      <Divider />
 
       <div className={formStyles.formFooter}>
         <button type="submit" className="btn" disabled={isSubmitting}>

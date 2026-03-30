@@ -1,0 +1,192 @@
+.root {
+  max-width: 872px;
+}
+
+.intro {
+  display: grid;
+  gap: 8px;
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: -0.6px;
+  color: #262626;
+}
+
+.description {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 350;
+  line-height: 14px;
+  letter-spacing: -0.42px;
+  color: #626262;
+}
+
+.topMeta {
+  margin-top: 28px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.langWrap {
+  display: grid;
+  gap: 4px;
+}
+
+.langLabel {
+  font-size: 14px;
+  font-weight: 350;
+  line-height: 14px;
+  letter-spacing: -0.42px;
+  color: #626262;
+}
+
+.progressWrap {
+  min-width: 260px;
+  display: grid;
+  gap: 8px;
+}
+
+.progressText {
+  font-size: 14px;
+  font-weight: 350;
+  line-height: 14px;
+  letter-spacing: -0.42px;
+  color: #626262;
+  text-align: right;
+}
+
+.progressTrack {
+  height: 8px;
+  border-radius: 999px;
+  background: #e1e1e1;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 999px;
+  background: #98da00;
+}
+
+.questions {
+  display: grid;
+}
+
+.questionBlock {
+  display: grid;
+  gap: 20px;
+}
+
+.questionTitle {
+  margin: 0;
+  display: flex;
+  gap: 8px;
+  font-size: 20px;
+  font-weight: 550;
+  line-height: 20px;
+  letter-spacing: -0.6px;
+  color: #262626;
+}
+
+.options {
+  display: grid;
+  gap: 8px;
+}
+
+.optionBtn {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.checkbox {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: #d9d9d9;
+  flex: 0 0 16px;
+}
+
+.checkboxChecked {
+  background: #98da00;
+  position: relative;
+}
+
+.checkboxChecked::after {
+  content: "";
+  position: absolute;
+  width: 7px;
+  height: 4px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(-45deg);
+  left: 4px;
+  top: 4px;
+}
+
+.optionText {
+  font-size: 16px;
+  font-weight: 350;
+  line-height: 16px;
+  letter-spacing: -0.48px;
+  color: #262626;
+}
+
+.optionTextMuted {
+  color: #d9d9d9;
+}
+
+.consents {
+  margin-top: 56px;
+  display: grid;
+  gap: 16px;
+}
+
+.inlineLink {
+  color: inherit;
+}
+
+.successMsg {
+  margin: 16px 0 0;
+  color: #4e7000;
+  font-size: 14px;
+  font-weight: 350;
+}
+
+.actions {
+  margin-top: 24px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+@media (max-width: 1200px) {
+  .progressText {
+    text-align: left;
+  }
+}
+
+@media (max-width: 900px) {
+  .questionTitle {
+    font-size: 18px;
+    line-height: 20px;
+  }
+
+  .optionText {
+    font-size: 15px;
+    line-height: 18px;
+  }
+}

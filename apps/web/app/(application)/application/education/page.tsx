@@ -452,6 +452,8 @@ export default function EducationPage() {
         )}
       </div>
 
+      <Divider />
+
       <div className={formStyles.formFooter}>
         <button className="btn" type="submit" disabled={isSubmitting}>
           {isSubmitting ? "Сохранение…" : "Сохранить"}

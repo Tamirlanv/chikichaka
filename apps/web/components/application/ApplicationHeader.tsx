@@ -20,7 +20,7 @@ export function ApplicationHeader({ candidateName }: Props) {
           </p>
         </div>
         <Link href="/application/review" className="btn">
-          Отправить заявку
+          Отправить анкету
         </Link>
       </div>
     </header>

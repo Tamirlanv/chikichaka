@@ -58,9 +58,9 @@ function apiBaseUrl(): string {
 
 export async function apiFetch<T>(
   path: string,
-  init: RequestInit & { json?: unknown } = {},
+  init: RequestInit & { json?: unknown; skipAuthRefresh?: boolean } = {},
 ): Promise<T> {
-  const { json, headers, ...rest } = init;
+  const { json, headers, skipAuthRefresh, ...rest } = init;
   const base = apiBaseUrl();
   const rel = path.startsWith("/api/v1") ? path : `/api/v1${path.startsWith("/") ? path : `/${path}`}`;
   const url = path.startsWith("http") ? path : `${base}${rel}`;
@@ -68,13 +68,33 @@ export async function apiFetch<T>(
   if (json !== undefined) {
     h.set("Content-Type", "application/json");
   }
-  const res = await fetch(url, {
+  let res = await fetch(url, {
     ...rest,
     headers: h,
     body: json !== undefined ? JSON.stringify(json) : rest.body,
     credentials: "include",
     cache: "no-store",
   });
+
+  const canRefresh =
+    !skipAuthRefresh &&
+    !url.includes("/api/v1/auth/refresh") &&
+    !url.includes("/api/v1/auth/login") &&
+    !url.includes("/api/v1/auth/logout");
+
+  if (res.status === 401 && canRefresh) {
+    const refreshed = await refreshSession();
+    if (refreshed) {
+      res = await fetch(url, {
+        ...rest,
+        headers: h,
+        body: json !== undefined ? JSON.stringify(json) : rest.body,
+        credentials: "include",
+        cache: "no-store",
+      });
+    }
+  }
+
   const data = await parseJsonSafe(res);
   if (!res.ok) {
     const msg =
@@ -119,7 +139,7 @@ export async function apiFetchCached<T>(path: string, ttlMs: number): Promise<T>
 
 export async function refreshSession(): Promise<boolean> {
   try {
-    await apiFetch("/api/v1/auth/refresh", { method: "POST" });
+    await apiFetch("/api/v1/auth/refresh", { method: "POST", skipAuthRefresh: true });
     return true;
   } catch {
     return false;

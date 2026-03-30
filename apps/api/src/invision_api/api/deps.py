@@ -77,6 +77,13 @@ def is_refresh_blacklisted(jti: str) -> bool:
 
 
 def blacklist_refresh_jti(jti: str, ttl_seconds: int) -> None:
-    r = get_redis_client()
+    if ttl_seconds <= 0:
+        return
     key = f"refresh_token_blacklist:{jti}"
-    r.setex(key, ttl_seconds, "1")
+    try:
+        r = get_redis_client()
+        r.setex(key, ttl_seconds, "1")
+    except Exception:
+        # Dev-safe fallback: if Redis is unavailable, do not fail auth endpoints with 500.
+        # Token revocation via blacklist becomes best-effort until Redis is restored.
+        return

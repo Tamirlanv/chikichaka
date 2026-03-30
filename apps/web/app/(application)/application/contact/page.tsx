@@ -152,13 +152,13 @@ export default function ContactPage() {
 
       <FormSection title="Контактные данные">
         <div className={formStyles.row3}>
-          <FormField label="Телефон" placeholder="+77001234567" {...register("phone_e164")} />
-          <FormField label="Instagram" placeholder="@username" {...register("instagram")} />
-          <FormField label="Telegram" placeholder="@username" {...register("telegram")} />
+          <FormField label="Телефон" placeholder="+7 777 123 45 67" fieldType="phone" {...register("phone_e164")} />
+          <FormField label="Instagram" placeholder="@username" fieldType="latin_username" {...register("instagram")} />
+          <FormField label="Telegram" placeholder="@username" fieldType="latin_username" {...register("telegram")} />
         </div>
 
         <div className={formStyles.row3}>
-          <FormField label="WhatsApp" placeholder="+7" {...register("whatsapp")} />
+          <FormField label="WhatsApp" placeholder="+7 777 123 45 67" fieldType="phone" {...register("whatsapp")} />
         </div>
 
         {errors.phone_e164 && <p className="error">{errors.phone_e164.message}</p>}
@@ -201,6 +201,8 @@ export default function ContactPage() {
           </p>
         )}
       </div>
+
+      <Divider />
 
       {msg && <p className="muted">{msg}</p>}
 

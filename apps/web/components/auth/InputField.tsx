@@ -1,5 +1,6 @@
 "use client";
 
+import { getInputConstraints, processInputValue, type InputFieldType } from "@/lib/input-constraints";
 import styles from "./auth-register.module.css";
 
 type InputFieldProps = {
@@ -14,6 +15,8 @@ type InputFieldProps = {
   error?: string;
   autoComplete?: string;
   inputMode?: "numeric" | "text" | "email" | "tel" | "search" | "decimal" | "none";
+  fieldType?: InputFieldType;
+  onProcessedValue?: (payload: { formattedValue: string; rawValue: string; isComplete: boolean }) => void;
 };
 
 export function InputField({
@@ -27,7 +30,14 @@ export function InputField({
   error,
   autoComplete,
   inputMode,
+  fieldType = "text",
+  onProcessedValue,
 }: InputFieldProps) {
+  const constraints = getInputConstraints(fieldType);
+  const defaultInputMode =
+    fieldType === "phone" ? "tel" : fieldType === "iin" || fieldType === "date" ? "numeric" : "text";
+  const shouldNormalize = type !== "password" && type !== "email";
+
   return (
     <div className={styles.field}>
       <label className={styles.label} htmlFor={name}>
@@ -39,11 +49,31 @@ export function InputField({
           name={name}
           type={type}
           value={value ?? ""}
-          onChange={(e) => onChange(e.target.value)}
-          onBlur={onBlur}
+          onChange={(e) => {
+            if (!shouldNormalize) {
+              onChange(e.target.value);
+              return;
+            }
+            const processed = processInputValue(fieldType, e.target.value, { phase: "input" });
+            onChange(processed.formattedValue);
+            onProcessedValue?.(processed);
+          }}
+          onBlur={(e) => {
+            if (!shouldNormalize) {
+              onBlur?.();
+              return;
+            }
+            const processed = processInputValue(fieldType, e.target.value, { phase: "blur" });
+            if (processed.formattedValue !== (value ?? "")) {
+              onChange(processed.formattedValue);
+            }
+            onProcessedValue?.(processed);
+            onBlur?.();
+          }}
           placeholder={placeholder}
           autoComplete={autoComplete}
-          inputMode={inputMode}
+          inputMode={inputMode ?? defaultInputMode}
+          maxLength={shouldNormalize ? constraints.maxLength : undefined}
           className={styles.input}
         />
       </div>

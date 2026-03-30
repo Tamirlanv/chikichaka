@@ -1,0 +1,555 @@
+import type { Question } from "./types";
+
+/**
+ * Stable UUIDs for seed + frontend.
+ * NOTE: These are intentionally simple but valid UUID strings (v4-ish version/variant bits).
+ */
+const IDS = Array.from({ length: 40 }, (_, i) =>
+  `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
+);
+
+export const PERSONALITY_QUESTIONS: readonly Question[] = [
+  {
+    id: IDS[0],
+    index: 1,
+    text: {
+      ru: "Когда я начинаю новое дело, мне обычно ближе:",
+      en: "When I start a new task, I usually lean toward:",
+    },
+    options: [
+      { key: "A", text: { ru: "Сначала понять общую картину и только потом действовать.", en: "First understand the big picture, then act." } },
+      { key: "B", text: { ru: "Быстро попробовать первый шаг и учиться по ходу.", en: "Try the first step quickly and learn along the way." } },
+      { key: "C", text: { ru: "Обсудить с другими, как лучше подойти к задаче.", en: "Discuss with others how best to approach the task." } },
+      { key: "D", text: { ru: "Подождать, пока появится более ясная структура.", en: "Wait until a clearer structure emerges." } },
+    ],
+    scoring: {
+      A: { REF: 2, RES: 1 },
+      B: { INI: 2, ADP: 1 },
+      C: { COL: 2, REF: 1 },
+      D: { ADP: 2, REF: 1 },
+    },
+  },
+  {
+    id: IDS[1],
+    index: 2,
+    text: {
+      ru: "Если в команде мнения разделились, я чаще:",
+      en: "If opinions in a team split, I more often:",
+    },
+    options: [
+      { key: "A", text: { ru: "Пытаюсь найти общий принцип, который объединит позиции.", en: "Try to find a common principle that unites positions." } },
+      { key: "B", text: { ru: "Смотрю, какой вариант быстрее даст результат.", en: "See which option will deliver results faster." } },
+      { key: "C", text: { ru: "Слушаю, чтобы понять, что важно для каждого.", en: "Listen to understand what matters to each person." } },
+      { key: "D", text: { ru: "Предлагаю временное решение, чтобы не застревать.", en: "Propose a temporary solution to avoid getting stuck." } },
+    ],
+    scoring: {
+      A: { COL: 2, REF: 1 },
+      B: { INI: 2, ADP: 1 },
+      C: { COL: 2, RES: 1 },
+      D: { ADP: 2, INI: 1 },
+    },
+  },
+  {
+    id: IDS[2],
+    index: 3,
+    text: {
+      ru: "Когда задача кажется слишком большой, я обычно:",
+      en: "When a task feels too big, I usually:",
+    },
+    options: [
+      { key: "A", text: { ru: "Разбиваю ее на понятные этапы.", en: "Break it into clear stages." } },
+      { key: "B", text: { ru: "Начинаю с самой интересной части.", en: "Start with the most interesting part." } },
+      { key: "C", text: { ru: "Сначала советуюсь с теми, кто уже делал похожее.", en: "First consult those who have done something similar." } },
+      { key: "D", text: { ru: "Беру паузу, чтобы собраться с мыслями.", en: "Take a pause to gather my thoughts." } },
+    ],
+    scoring: {
+      A: { RES: 2, REF: 1 },
+      B: { INI: 2, ADP: 1 },
+      C: { COL: 2, REF: 1 },
+      D: { REF: 2, ADP: 1 },
+    },
+  },
+  {
+    id: IDS[3],
+    index: 4,
+    text: {
+      ru: "Если я замечаю возможность улучшить процесс, я скорее:",
+      en: "If I notice an opportunity to improve a process, I’m more likely to:",
+    },
+    options: [
+      { key: "A", text: { ru: "Проверю, действительно ли это важное улучшение.", en: "Check whether it’s truly an important improvement." } },
+      { key: "B", text: { ru: "Предложу идею команде и соберу реакции.", en: "Share the idea with the team and gather reactions." } },
+      { key: "C", text: { ru: "Попробую внедрить маленькое изменение на практике.", en: "Try implementing a small change in practice." } },
+      { key: "D", text: { ru: "Запомню идею и вернусь к ней в более подходящий момент.", en: "Keep the idea and revisit it at a better moment." } },
+    ],
+    scoring: {
+      A: { REF: 2, RES: 1 },
+      B: { COL: 2, INI: 1 },
+      C: { INI: 2, ADP: 1 },
+      D: { ADP: 2, REF: 1 },
+    },
+  },
+  {
+    id: IDS[4],
+    index: 5,
+    text: {
+      ru: "Когда мне дают свободу в выполнении задачи, я:",
+      en: "When I’m given freedom in how to do a task, I:",
+    },
+    options: [
+      { key: "A", text: { ru: "Чувствую вдохновение и беру инициативу.", en: "Feel inspired and take initiative." } },
+      { key: "B", text: { ru: "Сначала определяю для себя рамки и критерии.", en: "First define boundaries and criteria for myself." } },
+      { key: "C", text: { ru: "Предпочитаю свериться с ожиданиями других.", en: "Prefer to align with others’ expectations." } },
+      { key: "D", text: { ru: "Ищу опору в уже работающих примерах.", en: "Look for reference in existing working examples." } },
+    ],
+    scoring: {
+      A: { INI: 2, ADP: 1 },
+      B: { RES: 2, REF: 1 },
+      C: { COL: 2, RES: 1 },
+      D: { REF: 2, ADP: 1 },
+    },
+  },
+  {
+    id: IDS[5],
+    index: 6,
+    text: {
+      ru: "Если я ошибся в важной задаче, я обычно:",
+      en: "If I made a mistake in an important task, I usually:",
+    },
+    options: [
+      { key: "A", text: { ru: "Сразу разбираюсь, где именно произошел сбой.", en: "Immediately analyze where exactly it went wrong." } },
+      { key: "B", text: { ru: "Сначала переживаю, а потом возвращаюсь к анализу.", en: "First worry, then return to analysis." } },
+      { key: "C", text: { ru: "Обсуждаю ситуацию с теми, кому доверяю.", en: "Discuss the situation with people I trust." } },
+      { key: "D", text: { ru: "Стараюсь быстро исправить последствия и двигаться дальше.", en: "Try to fix consequences quickly and move on." } },
+    ],
+    scoring: {
+      A: { RES: 2, REF: 1 },
+      B: { ADP: 2, REF: 1 },
+      C: { COL: 2, ADP: 1 },
+      D: { ADP: 2, RES: 1 },
+    },
+  },
+  {
+    id: IDS[6],
+    index: 7,
+    text: { ru: "Когда в группе появляется новый человек, я чаще:", en: "When a new person joins a group, I more often:" },
+    options: [
+      { key: "A", text: { ru: "Сам начинаю контакт, чтобы ему было проще включиться.", en: "Initiate contact so it’s easier for them to join in." } },
+      { key: "B", text: { ru: "Наблюдаю, как ему комфортнее взаимодействовать.", en: "Observe what interaction style is comfortable for them." } },
+      { key: "C", text: { ru: "Подключаюсь, когда появляется общий рабочий повод.", en: "Join when there is a shared work-related reason." } },
+      { key: "D", text: { ru: "Даю пространство, чтобы человек сам освоился.", en: "Give space so the person can settle in on their own." } },
+    ],
+    scoring: { A: { COL: 2, INI: 1 }, B: { REF: 2, COL: 1 }, C: { COL: 2, ADP: 1 }, D: { REF: 2, ADP: 1 } },
+  },
+  {
+    id: IDS[7],
+    index: 8,
+    text: {
+      ru: "Если дедлайн приближается, а работа еще не закончена, я обычно:",
+      en: "If a deadline is approaching and the work isn’t finished, I usually:",
+    },
+    options: [
+      { key: "A", text: { ru: "Сужаю фокус до самого важного.", en: "Narrow the focus to what’s most important." } },
+      { key: "B", text: { ru: "Увеличиваю темп и стараюсь дожать все.", en: "Speed up and try to push through everything." } },
+      { key: "C", text: { ru: "Пересобираю план и перераспределяю усилия.", en: "Rebuild the plan and redistribute effort." } },
+      { key: "D", text: { ru: "Связываюсь с другими, чтобы уточнить приоритеты.", en: "Reach out to others to clarify priorities." } },
+    ],
+    scoring: { A: { RES: 2, ADP: 1 }, B: { INI: 2, RES: 1 }, C: { ADP: 2, RES: 1 }, D: { COL: 2, RES: 1 } },
+  },
+  {
+    id: IDS[8],
+    index: 9,
+    text: { ru: "Когда я слышу критику в свой адрес, моя первая реакция:", en: "When I hear criticism of me, my first reaction is:" },
+    options: [
+      { key: "A", text: { ru: "Понять, насколько она обоснована.", en: "Understand how well-founded it is." } },
+      { key: "B", text: { ru: "Защитить свою позицию, если считаю ее верной.", en: "Defend my position if I believe it’s right." } },
+      { key: "C", text: { ru: "Внимательно выслушать и задать уточняющие вопросы.", en: "Listen carefully and ask clarifying questions." } },
+      { key: "D", text: { ru: "Взять время, чтобы спокойно это переварить.", en: "Take time to process it calmly." } },
+    ],
+    scoring: { A: { REF: 2, RES: 1 }, B: { INI: 2, RES: 1 }, C: { COL: 2, REF: 1 }, D: { ADP: 2, REF: 1 } },
+  },
+  {
+    id: IDS[9],
+    index: 10,
+    text: {
+      ru: "Если мне нужно принять решение в условиях неполной информации, я чаще:",
+      en: "If I need to decide with incomplete information, I more often:",
+    },
+    options: [
+      { key: "A", text: { ru: "Опираюсь на логику и доступные факты.", en: "Rely on logic and available facts." } },
+      { key: "B", text: { ru: "Делаю рабочее предположение и проверяю его.", en: "Make a working assumption and test it." } },
+      { key: "C", text: { ru: "Советуюсь с людьми, чье мнение считаю ценным.", en: "Consult people whose opinion I value." } },
+      { key: "D", text: { ru: "Стараюсь отложить решение, пока данных не станет больше.", en: "Try to postpone the decision until more data appears." } },
+    ],
+    scoring: { A: { REF: 2, RES: 1 }, B: { ADP: 2, INI: 1 }, C: { COL: 2, REF: 1 }, D: { RES: 2, REF: 1 } },
+  },
+  {
+    id: IDS[10],
+    index: 11,
+    text: { ru: "Когда у меня появляется сильная идея, я обычно:", en: "When I get a strong idea, I usually:" },
+    options: [
+      { key: "A", text: { ru: "Сразу проверяю, как ее можно реализовать.", en: "Immediately check how to implement it." } },
+      { key: "B", text: { ru: "Думаю, кому она может быть полезна.", en: "Think about who it could help." } },
+      { key: "C", text: { ru: "Сначала дорабатываю ее у себя в голове.", en: "Refine it in my head first." } },
+      { key: "D", text: { ru: "Смотрю, насколько она вписывается в текущую ситуацию.", en: "See how well it fits the current situation." } },
+    ],
+    scoring: { A: { INI: 2, RES: 1 }, B: { COL: 2, REF: 1 }, C: { REF: 2, RES: 1 }, D: { ADP: 2, REF: 1 } },
+  },
+  {
+    id: IDS[11],
+    index: 12,
+    text: { ru: "В командной работе мне чаще всего комфортно, когда:", en: "In teamwork, I feel most comfortable when:" },
+    options: [
+      { key: "A", text: { ru: "Понятно, кто за что отвечает.", en: "It’s clear who owns what." } },
+      { key: "B", text: { ru: "Есть пространство для инициативы и гибкости.", en: "There is room for initiative and flexibility." } },
+      { key: "C", text: { ru: "Участники открыто обсуждают ожидания и трудности.", en: "People openly discuss expectations and difficulties." } },
+      { key: "D", text: { ru: "Можно сосредоточиться на своей части без лишнего шума.", en: "I can focus on my part without extra noise." } },
+    ],
+    scoring: { A: { RES: 2, COL: 1 }, B: { INI: 2, ADP: 1 }, C: { COL: 2, REF: 1 }, D: { REF: 2, RES: 1 } },
+  },
+  {
+    id: IDS[12],
+    index: 13,
+    text: { ru: "Когда кто-то не согласен со мной, я скорее:", en: "When someone disagrees with me, I’m more likely to:" },
+    options: [
+      { key: "A", text: { ru: "Пытаюсь выяснить логику его позиции.", en: "Try to understand the logic of their position." } },
+      { key: "B", text: { ru: "Проверяю, не упускаю ли я что-то важное.", en: "Check whether I’m missing something important." } },
+      { key: "C", text: { ru: "Отстаиваю свою идею, если вижу в ней смысл.", en: "Defend my idea if I see value in it." } },
+      { key: "D", text: { ru: "Ищу вариант, где можно совместить подходы.", en: "Look for a way to combine approaches." } },
+    ],
+    scoring: { A: { REF: 2, COL: 1 }, B: { REF: 2, ADP: 1 }, C: { INI: 2, RES: 1 }, D: { COL: 2, ADP: 1 } },
+  },
+  {
+    id: IDS[13],
+    index: 14,
+    text: { ru: "Если я вижу, что кто-то в команде молчит, я обычно:", en: "If I notice someone in the team is silent, I usually:" },
+    options: [
+      { key: "A", text: { ru: "Спрашиваю его мнение напрямую.", en: "Ask for their opinion directly." } },
+      { key: "B", text: { ru: "Даю время, чтобы он включился сам.", en: "Give time for them to join in on their own." } },
+      { key: "C", text: { ru: "Пробую вовлечь через более конкретный вопрос.", en: "Engage them with a more specific question." } },
+      { key: "D", text: { ru: "Сначала наблюдаю, связано ли это с темой или с настроением.", en: "First observe whether it’s about the topic or mood." } },
+    ],
+    scoring: { A: { COL: 2, INI: 1 }, B: { REF: 2, ADP: 1 }, C: { COL: 2, REF: 1 }, D: { REF: 2, COL: 1 } },
+  },
+  {
+    id: IDS[14],
+    index: 15,
+    text: { ru: "Когда мне нужно быстро освоить новый навык, я чаще:", en: "When I need to learn a new skill quickly, I more often:" },
+    options: [
+      { key: "A", text: { ru: "Сразу иду в практику.", en: "Jump straight into practice." } },
+      { key: "B", text: { ru: "Ищу хорошую систему обучения.", en: "Look for a good learning system." } },
+      { key: "C", text: { ru: "Учусь через примеры сильных людей.", en: "Learn through examples of strong performers." } },
+      { key: "D", text: { ru: "Сочетаю пробу, чтение и обратную связь.", en: "Combine trying, reading, and feedback." } },
+    ],
+    scoring: { A: { INI: 2, ADP: 1 }, B: { RES: 2, REF: 1 }, C: { COL: 2, ADP: 1 }, D: { ADP: 2, REF: 1 } },
+  },
+  {
+    id: IDS[15],
+    index: 16,
+    text: { ru: "Если результат оказался слабее, чем я ожидал, я обычно:", en: "If the result is weaker than I expected, I usually:" },
+    options: [
+      { key: "A", text: { ru: "Анализирую, что можно улучшить в подходе.", en: "Analyze what can be improved in my approach." } },
+      { key: "B", text: { ru: "Смотрю, не были ли ожидания изначально завышены.", en: "Consider whether my expectations were too high." } },
+      { key: "C", text: { ru: "Обсуждаю это с теми, кто может дать взгляд со стороны.", en: "Discuss it with someone who can offer an outside view." } },
+      { key: "D", text: { ru: "Даю себе короткую паузу и затем возвращаюсь к задаче.", en: "Take a short break and then return to the task." } },
+    ],
+    scoring: { A: { REF: 2, RES: 1 }, B: { REF: 2, ADP: 1 }, C: { COL: 2, REF: 1 }, D: { ADP: 2, RES: 1 } },
+  },
+  {
+    id: IDS[16],
+    index: 17,
+    text: { ru: "Когда в группе возникает напряжение, я чаще:", en: "When tension arises in a group, I more often:" },
+    options: [
+      { key: "A", text: { ru: "Пытаюсь перевести разговор в конструктив.", en: "Try to steer the conversation toward constructive ground." } },
+      { key: "B", text: { ru: "Слежу, чтобы решение не потерялось за эмоциями.", en: "Make sure the decision doesn’t get lost behind emotions." } },
+      { key: "C", text: { ru: "Сначала понимаю, в чем источник напряжения.", en: "First understand the source of tension." } },
+      { key: "D", text: { ru: "Предпочитаю не усиливать ситуацию и говорить точечно.", en: "Prefer not to escalate and speak precisely." } },
+    ],
+    scoring: { A: { COL: 2, ADP: 1 }, B: { RES: 2, REF: 1 }, C: { REF: 2, COL: 1 }, D: { ADP: 2, REF: 1 } },
+  },
+  {
+    id: IDS[17],
+    index: 18,
+    text: { ru: "Если мне предлагают роль, где надо координировать других, я:", en: "If I’m offered a role coordinating others, I:" },
+    options: [
+      { key: "A", text: { ru: "С интересом соглашаюсь, если вижу смысл задачи.", en: "Agree with interest if I see the task’s purpose." } },
+      { key: "B", text: { ru: "Беру ее, если понимаю структуру и ответственность.", en: "Take it if I understand the structure and responsibility." } },
+      { key: "C", text: { ru: "Сначала оцениваю состав команды и контекст.", en: "First assess the team and context." } },
+      { key: "D", text: { ru: "Предпочитаю роль эксперта, а не координатора.", en: "Prefer being an expert rather than a coordinator." } },
+    ],
+    scoring: { A: { INI: 2, COL: 1 }, B: { RES: 2, INI: 1 }, C: { REF: 2, COL: 1 }, D: { REF: 2, RES: 1 } },
+  },
+  {
+    id: IDS[18],
+    index: 19,
+    text: { ru: "Когда у меня много идей одновременно, я обычно:", en: "When I have many ideas at once, I usually:" },
+    options: [
+      { key: "A", text: { ru: "Выбираю одну и довожу ее дальше остальных.", en: "Pick one and push it further than the rest." } },
+      { key: "B", text: { ru: "Выписываю все и ищу между ними связи.", en: "Write them all down and look for connections." } },
+      { key: "C", text: { ru: "Обсуждаю, какая из них сейчас нужнее.", en: "Discuss which one is needed most right now." } },
+      { key: "D", text: { ru: "Сохраняю идеи и возвращаюсь к ним по мере необходимости.", en: "Keep ideas and return to them as needed." } },
+    ],
+    scoring: { A: { RES: 2, INI: 1 }, B: { REF: 2, ADP: 1 }, C: { COL: 2, REF: 1 }, D: { ADP: 2, REF: 1 } },
+  },
+  {
+    id: IDS[19],
+    index: 20,
+    text: { ru: "Если кто-то просит меня о помощи, а я занят, я скорее:", en: "If someone asks for help while I’m busy, I’m more likely to:" },
+    options: [
+      { key: "A", text: { ru: "Помогу коротко и по делу.", en: "Help briefly and to the point." } },
+      { key: "B", text: { ru: "Честно скажу, когда смогу включиться.", en: "Honestly say when I can join." } },
+      { key: "C", text: { ru: "Попробую понять, насколько это срочно.", en: "Try to understand how urgent it is." } },
+      { key: "D", text: { ru: "Подскажу ресурс или человека, который может помочь быстрее.", en: "Point to a resource or person who can help faster." } },
+    ],
+    scoring: { A: { COL: 2, RES: 1 }, B: { RES: 2, COL: 1 }, C: { REF: 2, COL: 1 }, D: { COL: 2, ADP: 1 } },
+  },
+  {
+    id: IDS[20],
+    index: 21,
+    text: { ru: "Когда я думаю о своем будущем развитии, мне ближе:", en: "When I think about my future growth, I lean toward:" },
+    options: [
+      { key: "A", text: { ru: "Ставить амбициозные цели и расти к ним.", en: "Setting ambitious goals and growing into them." } },
+      { key: "B", text: { ru: "Развивать сильные стороны шаг за шагом.", en: "Developing strengths step by step." } },
+      { key: "C", text: { ru: "Искать путь, который будет и интересным, и полезным.", en: "Finding a path that is both interesting and useful." } },
+      { key: "D", text: { ru: "Оставлять себе пространство для изменений по ходу.", en: "Leaving room to change along the way." } },
+    ],
+    scoring: { A: { INI: 2, RES: 1 }, B: { RES: 2, REF: 1 }, C: { COL: 2, REF: 1 }, D: { ADP: 2, REF: 1 } },
+  },
+  {
+    id: IDS[21],
+    index: 22,
+    text: { ru: "Если в проекте что-то идет не так, я чаще всего:", en: "If something goes wrong in a project, I most often:" },
+    options: [
+      { key: "A", text: { ru: "Ищу корневую причину проблемы.", en: "Look for the root cause." } },
+      { key: "B", text: { ru: "Смотрю, что можно спасти прямо сейчас.", en: "See what can be saved right now." } },
+      { key: "C", text: { ru: "Уточняю, как видят ситуацию остальные.", en: "Clarify how others see the situation." } },
+      { key: "D", text: { ru: "Стараюсь удержать рабочее спокойствие.", en: "Try to maintain calm and steady work." } },
+    ],
+    scoring: { A: { REF: 2, RES: 1 }, B: { ADP: 2, INI: 1 }, C: { COL: 2, REF: 1 }, D: { ADP: 2, RES: 1 } },
+  },
+  {
+    id: IDS[22],
+    index: 23,
+    text: { ru: "Когда я знакомлюсь с новой информацией, я обычно:", en: "When I encounter new information, I usually:" },
+    options: [
+      { key: "A", text: { ru: "Сначала проверяю источник и контекст.", en: "First check the source and context." } },
+      { key: "B", text: { ru: "Примеряю, как это связано с тем, что уже знаю.", en: "Connect it to what I already know." } },
+      { key: "C", text: { ru: "Смотрю, как это можно применить на практике.", en: "See how it can be applied in practice." } },
+      { key: "D", text: { ru: "Обсуждаю это с другими, чтобы лучше понять.", en: "Discuss it with others to understand better." } },
+    ],
+    scoring: { A: { REF: 2, RES: 1 }, B: { REF: 2, ADP: 1 }, C: { INI: 2, RES: 1 }, D: { COL: 2, REF: 1 } },
+  },
+  {
+    id: IDS[23],
+    index: 24,
+    text: { ru: "Если я беру на себя обязательство, то для меня важнее:", en: "If I take on a commitment, what matters more to me is:" },
+    options: [
+      { key: "A", text: { ru: "Сдержать слово даже в сложных условиях.", en: "Keeping my word even in difficult conditions." } },
+      { key: "B", text: { ru: "Сразу реалистично оценить свои возможности.", en: "Realistically assessing my capacity upfront." } },
+      { key: "C", text: { ru: "Поддерживать прозрачность, если что-то меняется.", en: "Maintaining transparency if something changes." } },
+      { key: "D", text: { ru: "Найти лучший результат, даже если нужно пересобрать план.", en: "Finding the best result even if the plan must be rebuilt." } },
+    ],
+    scoring: { A: { RES: 2, ADP: 1 }, B: { REF: 2, RES: 1 }, C: { COL: 2, RES: 1 }, D: { ADP: 2, RES: 1 } },
+  },
+  {
+    id: IDS[24],
+    index: 25,
+    text: { ru: "Когда я попадаю в незнакомую среду, я:", en: "When I enter an unfamiliar environment, I:" },
+    options: [
+      { key: "A", text: { ru: "Быстро пробую в нее встроиться через действие.", en: "Quickly try to integrate through action." } },
+      { key: "B", text: { ru: "Сначала изучаю правила и негласные нормы.", en: "First study rules and unwritten norms." } },
+      { key: "C", text: { ru: "Смотрю, кто как взаимодействует между собой.", en: "Observe how people interact with each other." } },
+      { key: "D", text: { ru: "Ищу одного-двух людей, через которых проще войти в процесс.", en: "Find one or two people to enter the process through." } },
+    ],
+    scoring: { A: { ADP: 2, INI: 1 }, B: { REF: 2, RES: 1 }, C: { COL: 2, REF: 1 }, D: { COL: 2, ADP: 1 } },
+  },
+  {
+    id: IDS[25],
+    index: 26,
+    text: { ru: "Если в обсуждении появляется рискованный, но интересный вариант, я:", en: "If a risky but interesting option appears in discussion, I:" },
+    options: [
+      { key: "A", text: { ru: "Хочу понять возможный выигрыш.", en: "Want to understand the potential upside." } },
+      { key: "B", text: { ru: "Сразу думаю о последствиях и ограничениях.", en: "Immediately think about consequences and constraints." } },
+      { key: "C", text: { ru: "Сравниваю его с более надежными альтернативами.", en: "Compare it to more reliable alternatives." } },
+      { key: "D", text: { ru: "Считаю, что иногда стоит протестировать идею в малом масштабе.", en: "Believe it’s worth testing the idea at small scale sometimes." } },
+    ],
+    scoring: { A: { INI: 2, ADP: 1 }, B: { RES: 2, REF: 1 }, C: { REF: 2, RES: 1 }, D: { ADP: 2, INI: 1 } },
+  },
+  {
+    id: IDS[26],
+    index: 27,
+    text: { ru: "Когда кто-то рядом сильно переживает, я чаще:", en: "When someone nearby is very upset, I more often:" },
+    options: [
+      { key: "A", text: { ru: "Стараюсь его выслушать и понять.", en: "Try to listen and understand." } },
+      { key: "B", text: { ru: "Думаю, чем можно помочь практически.", en: "Think of practical ways to help." } },
+      { key: "C", text: { ru: "Даю пространство, если человеку это нужнее.", en: "Give space if that’s what they need." } },
+      { key: "D", text: { ru: "Поддерживаю спокойно, без лишнего давления.", en: "Support calmly without extra pressure." } },
+    ],
+    scoring: { A: { COL: 2, REF: 1 }, B: { COL: 2, RES: 1 }, C: { REF: 2, COL: 1 }, D: { ADP: 2, COL: 1 } },
+  },
+  {
+    id: IDS[27],
+    index: 28,
+    text: { ru: "В ситуации конкуренции мне обычно ближе:", en: "In a competitive situation, I’m usually closer to:" },
+    options: [
+      { key: "A", text: { ru: "Сосредоточиться на собственном росте.", en: "Focusing on my own growth." } },
+      { key: "B", text: { ru: "Воспринимать это как стимул показать лучший результат.", en: "Seeing it as a stimulus to deliver my best result." } },
+      { key: "C", text: { ru: "Следить, чтобы конкуренция не разрушала отношения.", en: "Ensuring competition doesn’t damage relationships." } },
+      { key: "D", text: { ru: "Искать, где можно сохранить и результат, и уважение.", en: "Looking for ways to keep both results and respect." } },
+    ],
+    scoring: { A: { RES: 2, REF: 1 }, B: { INI: 2, ADP: 1 }, C: { COL: 2, RES: 1 }, D: { COL: 2, REF: 1 } },
+  },
+  {
+    id: IDS[28],
+    index: 29,
+    text: { ru: "Когда у команды нет ясного плана, я скорее:", en: "When a team has no clear plan, I’m more likely to:" },
+    options: [
+      { key: "A", text: { ru: "Предложу каркас действий.", en: "Propose a framework of actions." } },
+      { key: "B", text: { ru: "Начну с ближайшего понятного шага.", en: "Start with the nearest clear step." } },
+      { key: "C", text: { ru: "Задам вопросы, чтобы прояснить цели.", en: "Ask questions to clarify goals." } },
+      { key: "D", text: { ru: "Посмотрю, кто естественно готов повести процесс.", en: "See who is naturally ready to lead the process." } },
+    ],
+    scoring: { A: { INI: 2, RES: 1 }, B: { ADP: 2, INI: 1 }, C: { REF: 2, COL: 1 }, D: { COL: 2, REF: 1 } },
+  },
+  {
+    id: IDS[29],
+    index: 30,
+    text: { ru: "Если у меня есть выбор между надежным и новым подходом, я обычно:", en: "If I can choose between a proven and a new approach, I usually:" },
+    options: [
+      { key: "A", text: { ru: "Выбираю надежный, если цена ошибки высока.", en: "Choose the proven one if the cost of error is high." } },
+      { key: "B", text: { ru: "Склоняюсь к новому, если вижу в нем потенциал.", en: "Lean toward the new one if I see potential." } },
+      { key: "C", text: { ru: "Комбинирую: беру устойчивую базу и добавляю новое.", en: "Combine: take a stable base and add something new." } },
+      { key: "D", text: { ru: "Решаю в зависимости от людей и контекста.", en: "Decide depending on people and context." } },
+    ],
+    scoring: { A: { RES: 2, REF: 1 }, B: { INI: 2, ADP: 1 }, C: { ADP: 2, RES: 1 }, D: { REF: 2, ADP: 1 } },
+  },
+  {
+    id: IDS[30],
+    index: 31,
+    text: { ru: "Когда я устаю в долгом проекте, я чаще:", en: "When I get tired in a long project, I more often:" },
+    options: [
+      { key: "A", text: { ru: "Напоминаю себе, ради чего начал.", en: "Remind myself why I started." } },
+      { key: "B", text: { ru: "Меняю способ работы, чтобы вернуть энергию.", en: "Change how I work to regain energy." } },
+      { key: "C", text: { ru: "Ищу поддержку или обратную связь.", en: "Seek support or feedback." } },
+      { key: "D", text: { ru: "Делаю короткую паузу и возвращаюсь с более ясной головой.", en: "Take a short break and return with a clearer head." } },
+    ],
+    scoring: { A: { RES: 2, REF: 1 }, B: { ADP: 2, INI: 1 }, C: { COL: 2, ADP: 1 }, D: { ADP: 2, REF: 1 } },
+  },
+  {
+    id: IDS[31],
+    index: 32,
+    text: { ru: "Если меня просят выступить от лица команды, я:", en: "If I’m asked to speak on behalf of the team, I:" },
+    options: [
+      { key: "A", text: { ru: "Соглашаюсь, если хорошо понимаю общую позицию.", en: "Agree if I understand the overall position well." } },
+      { key: "B", text: { ru: "Беру это на себя, если нужно собраться и представить результат.", en: "Take it on if we need to pull together and present results." } },
+      { key: "C", text: { ru: "Предпочитаю заранее обсудить, что именно важно донести.", en: "Prefer to discuss in advance what matters to convey." } },
+      { key: "D", text: { ru: "Комфортнее выступаю, когда есть четкая подготовка.", en: "Feel more comfortable when there’s clear preparation." } },
+    ],
+    scoring: { A: { RES: 2, COL: 1 }, B: { INI: 2, COL: 1 }, C: { COL: 2, REF: 1 }, D: { REF: 2, RES: 1 } },
+  },
+  {
+    id: IDS[32],
+    index: 33,
+    text: { ru: "Когда я вижу несправедливую ситуацию, я чаще:", en: "When I see an unfair situation, I more often:" },
+    options: [
+      { key: "A", text: { ru: "Пытаюсь понять, что именно в ней не так.", en: "Try to understand what exactly is wrong." } },
+      { key: "B", text: { ru: "Ищу способ отреагировать конструктивно.", en: "Look for a constructive way to respond." } },
+      { key: "C", text: { ru: "Сначала оцениваю последствия вмешательства.", en: "First assess consequences of intervening." } },
+      { key: "D", text: { ru: "Предпочитаю поддержать тех, кого это затронуло.", en: "Prefer to support those affected." } },
+    ],
+    scoring: { A: { REF: 2, COL: 1 }, B: { INI: 2, COL: 1 }, C: { RES: 2, REF: 1 }, D: { COL: 2, RES: 1 } },
+  },
+  {
+    id: IDS[33],
+    index: 34,
+    text: { ru: "Если человек работает совсем не так, как я, я обычно:", en: "If someone works very differently than I do, I usually:" },
+    options: [
+      { key: "A", text: { ru: "С интересом смотрю, в чем сила его подхода.", en: "Curiously look for the strength in their approach." } },
+      { key: "B", text: { ru: "Стараюсь договориться о понятных правилах взаимодействия.", en: "Try to agree on clear rules of interaction." } },
+      { key: "C", text: { ru: "Раздражаюсь, если это мешает общему темпу.", en: "Get irritated if it slows the overall pace." } },
+      { key: "D", text: { ru: "Адаптируюсь, если вижу, что результат от этого не страдает.", en: "Adapt if the result doesn’t suffer." } },
+    ],
+    scoring: { A: { REF: 2, COL: 1 }, B: { RES: 2, COL: 1 }, C: { RES: 2, ADP: 1 }, D: { ADP: 2, RES: 1 } },
+  },
+  {
+    id: IDS[34],
+    index: 35,
+    text: { ru: "Когда нужно мотивировать себя на сложную задачу, я:", en: "When I need to motivate myself for a hard task, I:" },
+    options: [
+      { key: "A", text: { ru: "Вижу в этом вызов и возможность вырасти.", en: "See it as a challenge and an opportunity to grow." } },
+      { key: "B", text: { ru: "Фокусируюсь на конкретном следующем шаге.", en: "Focus on the next concrete step." } },
+      { key: "C", text: { ru: "Думаю о конечном результате и его ценности.", en: "Think about the final result and its value." } },
+      { key: "D", text: { ru: "Создаю для себя систему поддержки и ритма.", en: "Create a support system and rhythm for myself." } },
+    ],
+    scoring: { A: { INI: 2, ADP: 1 }, B: { RES: 2, ADP: 1 }, C: { REF: 2, RES: 1 }, D: { RES: 2, COL: 1 } },
+  },
+  {
+    id: IDS[35],
+    index: 36,
+    text: { ru: "Если моя идея не получила поддержки, я чаще:", en: "If my idea doesn’t get support, I more often:" },
+    options: [
+      { key: "A", text: { ru: "Спрашиваю, что именно вызвало сомнения.", en: "Ask what exactly caused doubts." } },
+      { key: "B", text: { ru: "Дорабатываю идею и возвращаюсь с новой версией.", en: "Refine the idea and come back with a new version." } },
+      { key: "C", text: { ru: "Спокойно переключаюсь на другой вариант.", en: "Calmly switch to another option." } },
+      { key: "D", text: { ru: "Наблюдаю, не появится ли для нее лучший момент позже.", en: "Wait to see if there will be a better moment later." } },
+    ],
+    scoring: { A: { REF: 2, RES: 1 }, B: { RES: 2, ADP: 1 }, C: { ADP: 2, REF: 1 }, D: { ADP: 2, REF: 1 } },
+  },
+  {
+    id: IDS[36],
+    index: 37,
+    text: { ru: "Когда я достигаю хорошего результата, я обычно:", en: "When I achieve a good result, I usually:" },
+    options: [
+      { key: "A", text: { ru: "Анализирую, что сработало, чтобы повторить это.", en: "Analyze what worked to repeat it." } },
+      { key: "B", text: { ru: "Быстро переключаюсь на следующую цель.", en: "Quickly switch to the next goal." } },
+      { key: "C", text: { ru: "Делюсь результатом с теми, кто был вовлечен.", en: "Share the result with those involved." } },
+      { key: "D", text: { ru: "Даю себе время почувствовать удовлетворение от проделанной работы.", en: "Give myself time to feel satisfied with the work done." } },
+    ],
+    scoring: { A: { REF: 2, RES: 1 }, B: { INI: 2, ADP: 1 }, C: { COL: 2, RES: 1 }, D: { REF: 2, ADP: 1 } },
+  },
+  {
+    id: IDS[37],
+    index: 38,
+    text: {
+      ru: "Если нужно повести людей за собой в неопределенной ситуации, я:",
+      en: "If I need to lead people in an uncertain situation, I:",
+    },
+    options: [
+      { key: "A", text: { ru: "Сначала стараюсь создать ощущение ясности и опоры.", en: "First try to create a sense of clarity and support." } },
+      { key: "B", text: { ru: "Вдохновляю через цель и смысл.", en: "Inspire through purpose and meaning." } },
+      { key: "C", text: { ru: "Показываю путь через конкретные шаги.", en: "Show the way through concrete steps." } },
+      { key: "D", text: { ru: "Удерживаю внимание к настроению и состоянию команды.", en: "Keep attention on the team’s mood and state." } },
+    ],
+    scoring: { A: { RES: 2, COL: 1 }, B: { INI: 2, COL: 1 }, C: { RES: 2, INI: 1 }, D: { COL: 2, ADP: 1 } },
+  },
+  {
+    id: IDS[38],
+    index: 39,
+    text: { ru: "Когда я понимаю, что был неправ, мне ближе:", en: "When I realize I was wrong, I’m closer to:" },
+    options: [
+      { key: "A", text: { ru: "Прямо это признать и скорректировать курс.", en: "Admit it directly and adjust course." } },
+      { key: "B", text: { ru: "Сначала самому все обдумать, потом говорить.", en: "Think it through myself first, then speak." } },
+      { key: "C", text: { ru: "Объяснить, как я пришел к такому выводу.", en: "Explain how I came to that conclusion." } },
+      { key: "D", text: { ru: "Перевести фокус на то, как двигаться дальше.", en: "Shift focus to how we move forward." } },
+    ],
+    scoring: { A: { RES: 2, REF: 1 }, B: { REF: 2, ADP: 1 }, C: { REF: 2, COL: 1 }, D: { ADP: 2, RES: 1 } },
+  },
+  {
+    id: IDS[39],
+    index: 40,
+    text: {
+      ru: "В людях, которые ведут за собой других, я больше всего ценю:",
+      en: "In people who lead others, I value most:",
+    },
+    options: [
+      { key: "A", text: { ru: "Способность брать ответственность.", en: "The ability to take responsibility." } },
+      { key: "B", text: { ru: "Умение видеть людей и объединять их.", en: "The ability to see people and unite them." } },
+      { key: "C", text: { ru: "Смелость двигаться в новое.", en: "Courage to move into the new." } },
+      { key: "D", text: { ru: "Последовательность и внутреннюю устойчивость.", en: "Consistency and inner stability." } },
+    ],
+    scoring: { A: { RES: 2, INI: 1 }, B: { COL: 2, REF: 1 }, C: { INI: 2, ADP: 1 }, D: { REF: 2, RES: 1 } },
+  },
+] as const;
+
+export const PERSONALITY_QUESTION_IDS = IDS as readonly string[];
+

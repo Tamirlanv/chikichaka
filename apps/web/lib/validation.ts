@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_MOTIVATION_LETTER_LENGTH, MIN_MOTIVATION_LETTER_LENGTH } from "./motivation-letter";
 
 export const registerSchema = z
   .object({
@@ -69,6 +70,7 @@ export function splitNameToProfile(name: string): { first_name: string; last_nam
 export const loginSchema = z.object({
   email: z.string().email({ message: "Укажите корректный email" }),
   password: z.string().min(1, { message: "Введите пароль" }),
+  remember_me: z.boolean().default(false),
 });
 
 export const personalSchema = z.object({
@@ -119,4 +121,14 @@ export const educationSchema = z.object({
 
 export const socialSchema = z.object({
   attestation: z.string().min(10, { message: "Не менее 10 символов" }).max(2000, { message: "Не более 2000 символов" }),
+});
+
+export const motivationSchema = z.object({
+  narrative: z
+    .string()
+    .min(MIN_MOTIVATION_LETTER_LENGTH, { message: `Минимальный объем — ${MIN_MOTIVATION_LETTER_LENGTH} символов.` })
+    .max(MAX_MOTIVATION_LETTER_LENGTH, { message: `Максимальный объем — ${MAX_MOTIVATION_LETTER_LENGTH} символов.` }),
+  was_pasted: z.boolean().default(false),
+  paste_count: z.number().int().nonnegative().default(0),
+  last_pasted_at: z.string().nullable().optional(),
 });

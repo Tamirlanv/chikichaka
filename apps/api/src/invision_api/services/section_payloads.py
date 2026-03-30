@@ -95,8 +95,22 @@ class LeadershipEvidenceSectionPayload(BaseModel):
 
 
 class MotivationGoalsSectionPayload(BaseModel):
-    narrative: str = Field(min_length=50, max_length=8000)
+    narrative: str = Field(min_length=350, max_length=1000)
+    was_pasted: bool = False
+    paste_count: int = Field(default=0, ge=0)
+    last_pasted_at: datetime | None = None
     motivation_document_id: UUID | None = None
+
+    @field_validator("last_pasted_at", mode="before")
+    @classmethod
+    def parse_last_pasted_at(cls, v: Any) -> datetime | None:
+        if v is None or v == "":
+            return None
+        if isinstance(v, datetime):
+            return v
+        if isinstance(v, str):
+            return datetime.fromisoformat(v.replace("Z", "+00:00"))
+        return v
 
 
 class GrowthJourneySectionPayload(BaseModel):

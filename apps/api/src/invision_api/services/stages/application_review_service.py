@@ -11,6 +11,7 @@ from invision_api.models.application import Application
 from invision_api.models.enums import ApplicationStage
 from invision_api.repositories import admissions_repository
 from invision_api.services import explainability_service
+from invision_api.services import personality_profile_service
 from invision_api.services.stage_transition_policy import TransitionContext, TransitionName, apply_transition
 
 
@@ -19,7 +20,12 @@ def build_review_packet(db: Session, app: Application) -> dict[str, Any]:
     return {
         "application_id": str(app.id),
         "sections": sections,
-        "explainability": explainability_service.build_explainability_snapshot(db, app.id),
+        "explainability": {
+            **explainability_service.build_explainability_snapshot(db, app.id),
+            "personality_profile": personality_profile_service.build_personality_profile_snapshot(
+                db, application_id=app.id, lang="ru"
+            ),
+        },
     }
 
 
@@ -33,13 +39,13 @@ def upsert_snapshot_from_packet(
     if not app:
         raise ValueError("application not found")
     packet = build_review_packet(db, app)
-    exp = explainability_service.build_explainability_snapshot(db, application_id)
+    exp = packet.get("explainability") or explainability_service.build_explainability_snapshot(db, application_id)
     return admissions_repository.upsert_review_snapshot(
         db,
         application_id,
         review_status=review_status,
         review_packet=packet,
-        summary_by_block=exp.get("by_block"),
+        summary_by_block=(exp.get("by_block") if isinstance(exp, dict) else None),
         explainability_snapshot=exp,
     )
 

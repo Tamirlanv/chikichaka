@@ -1,156 +1,187 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { apiFetch, apiFetchCached, bustApiCache, ApiError } from "@/lib/api-client";
-import { questionCategoryRu, questionTypeRu } from "@/lib/labels";
-
-type Question = {
-  id: string;
-  category: string;
-  question_type: string;
-  prompt: string;
-  options: { id: string; label: string }[] | null;
-};
+import { useMemo, useState } from "react";
+import { apiFetch, bustApiCache, ApiError } from "@/lib/api-client";
+import { PERSONALITY_QUESTIONS, type AnswerKey, type Lang } from "@/lib/personality-profile";
+import { Divider } from "@/components/application/Divider";
+import { ConsentCheckbox } from "@/components/application/ConsentCheckbox";
+import { PillSegmentedControl } from "@/components/application/PillSegmentedControl";
+import styles from "./page.module.css";
 
 export default function InternalTestPage() {
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [answers, setAnswers] = useState<Record<string, { text?: string; selected?: string[] }>>({});
+  const [lang, setLang] = useState<Lang>("ru");
+  const [answers, setAnswers] = useState<Record<string, AnswerKey | undefined>>({});
   const [msg, setMsg] = useState<string | null>(null);
+  const [isMsgError, setIsMsgError] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [agreements, setAgreements] = useState({ privacy: false, parent: false });
 
-  const load = useCallback(async () => {
-    try {
-      const qs = await apiFetchCached<Question[]>("/internal-test/questions", 10 * 60 * 1000);
-      setQuestions(qs);
-    } catch (e) {
-      if (e instanceof ApiError) {
-        setMsg(e.message);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  function setText(id: string, text: string) {
-    setAnswers((a) => ({ ...a, [id]: { ...a[id], text } }));
-  }
-
-  function toggleMulti(id: string, optId: string) {
-    setAnswers((a) => {
-      const cur = new Set(a[id]?.selected || []);
-      if (cur.has(optId)) {
-        cur.delete(optId);
-      } else {
-        cur.add(optId);
-      }
-      return { ...a, [id]: { ...a[id], selected: Array.from(cur) } };
-    });
-  }
+  const questions = PERSONALITY_QUESTIONS;
+  const total = questions.length;
+  const answeredCount = useMemo(
+    () => questions.reduce((n, q) => (answers[q.id] ? n + 1 : n), 0),
+    [answers, questions],
+  );
+  const progressPct = total ? Math.round((answeredCount / total) * 100) : 0;
 
   async function saveDraft() {
     setMsg(null);
-    const payload = questions.map((q) => {
-      const a = answers[q.id] || {};
-      if (q.question_type === "text") {
-        return { question_id: q.id, text_answer: a.text || "" };
-      }
-      if (q.question_type === "single_choice") {
-        return { question_id: q.id, selected_options: a.selected?.[0] ? [a.selected[0]] : [] };
-      }
-      return { question_id: q.id, selected_options: a.selected || [] };
-    });
+    setIsMsgError(false);
+    setSaving(true);
+    const payload = questions
+      .filter((q) => Boolean(answers[q.id]))
+      .map((q) => ({ question_id: q.id, selected_options: [answers[q.id] as AnswerKey] }));
     try {
       await apiFetch("/internal-test/answers", { method: "POST", json: { answers: payload } });
       bustApiCache("/candidates/me");
       setMsg("Черновик сохранён.");
+      setIsMsgError(false);
     } catch (e) {
       if (e instanceof ApiError) {
         setMsg(e.message);
+        setIsMsgError(true);
       }
+    } finally {
+      setSaving(false);
     }
   }
 
   async function submitFinal() {
     setMsg(null);
+    setIsMsgError(false);
     try {
-      await saveDraft();
+      if (answeredCount !== total) {
+        setMsg("Ответьте на все вопросы перед отправкой.");
+        setIsMsgError(true);
+        return;
+      }
+      setSubmitting(true);
+      // Ensure backend has all answers saved (its validation requires selected_options present).
+      const payload = questions.map((q) => ({ question_id: q.id, selected_options: [answers[q.id] as AnswerKey] }));
+      await apiFetch("/internal-test/answers", { method: "POST", json: { answers: payload } });
       await apiFetch("/internal-test/submit", { method: "POST" });
       bustApiCache("/candidates/me");
       setMsg("Тест отправлен.");
+      setIsMsgError(false);
     } catch (e) {
       if (e instanceof ApiError) {
         setMsg(e.message);
+        setIsMsgError(true);
       }
+    } finally {
+      setSubmitting(false);
     }
   }
 
   return (
-    <div className="card grid" style={{ maxWidth: 720 }}>
-      <h1 className="h1" style={{ fontSize: 20 }}>
-        Тест
-      </h1>
-      <p className="muted" style={{ margin: 0 }}>
-        Сохраняйте черновик по ходу. Отправка один раз — после отправки ответы нельзя изменить.
-      </p>
-      {questions.map((q) => (
-        <div key={q.id} className="card grid card--nested">
-          <div className="muted" style={{ fontSize: 12 }}>
-            {questionCategoryRu(q.category)} · {questionTypeRu(q.question_type)}
-          </div>
-          <div>{q.prompt}</div>
-          {q.question_type === "text" && (
-            <textarea
-              className="input"
-              rows={5}
-              value={answers[q.id]?.text || ""}
-              onChange={(e) => setText(q.id, e.target.value)}
-            />
-          )}
-          {q.question_type === "single_choice" && q.options && (
-            <div className="grid" style={{ gap: 8 }}>
-              {q.options.map((o) => (
-                <label key={o.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <input
-                    type="radio"
-                    name={q.id}
-                    checked={(answers[q.id]?.selected || [])[0] === o.id}
-                    onChange={() => setAnswers((a) => ({ ...a, [q.id]: { selected: [o.id] } }))}
-                  />
-                  {o.label}
-                </label>
-              ))}
-            </div>
-          )}
-          {q.question_type === "multi_choice" && q.options && (
-            <div className="grid" style={{ gap: 8 }}>
-              {q.options.map((o) => (
-                <label key={o.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <input
-                    type="checkbox"
-                    checked={(answers[q.id]?.selected || []).includes(o.id)}
-                    onChange={() => toggleMulti(q.id, o.id)}
-                  />
-                  {o.label}
-                </label>
-              ))}
-            </div>
-          )}
+    <div className={styles.root}>
+      <section className={styles.intro}>
+        <h1 className={styles.title}>Тест на тип личности</h1>
+        <p className={styles.description}>
+          Правильных или неправильных ответов нет - мы просто хотим лучше понять вас, ваш образ мышления и то, что
+          движет вашими решениями. Будьте честны и доверьтесь своей первой интуиции.
+        </p>
+      </section>
+
+      <section className={styles.topMeta}>
+        <div className={styles.langWrap}>
+          <span className={styles.langLabel}>Язык теста</span>
+          <PillSegmentedControl
+            aria-label="Язык теста"
+            options={[
+              { value: "ru", label: "RU" },
+              { value: "en", label: "EN" },
+            ]}
+            value={lang}
+            onChange={(v) => setLang(v)}
+          />
         </div>
-      ))}
-      {msg && <div className="muted">{msg}</div>}
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <button className="btn secondary" type="button" onClick={() => void saveDraft()}>
-          Сохранить черновик
+        <div className={styles.progressWrap}>
+          <div className={styles.progressText}>
+            Прогресс: {answeredCount}/{total} ({progressPct}%)
+          </div>
+          <div className={styles.progressTrack} aria-hidden>
+            <div className={styles.progressFill} style={{ width: `${progressPct}%` }} />
+          </div>
+        </div>
+      </section>
+
+      <Divider />
+
+      <section className={styles.questions}>
+        {questions.map((q, idx) => {
+          const selected = answers[q.id];
+          return (
+            <div key={q.id}>
+              <article className={styles.questionBlock}>
+                <h2 className={styles.questionTitle}>
+                  <span>{q.index}.</span> <span>{q.text[lang]}</span>
+                </h2>
+                <div className={styles.options}>
+                  {q.options.map((o) => {
+                    const checked = selected === o.key;
+                    const muted = Boolean(selected) && !checked;
+                    return (
+                      <button
+                        key={o.key}
+                        type="button"
+                        className={styles.optionBtn}
+                        onClick={() => setAnswers((a) => ({ ...a, [q.id]: o.key }))}
+                      >
+                        <span className={`${styles.checkbox} ${checked ? styles.checkboxChecked : ""}`} aria-hidden />
+                        <span className={`${styles.optionText} ${muted ? styles.optionTextMuted : ""}`}>{o.text[lang]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </article>
+              {idx < questions.length - 1 ? <Divider /> : null}
+            </div>
+          );
+        })}
+      </section>
+
+      <Divider />
+
+      <section className={styles.consents}>
+        <ConsentCheckbox
+          checked={agreements.privacy}
+          onChange={(checked) => setAgreements((prev) => ({ ...prev, privacy: checked }))}
+        >
+          Отправляя эту форму, вы соглашаетесь на обработку ваших персональных данных в соответствии с нашей{" "}
+          <span className={styles.inlineLink}>Политикой конфиденциальности</span>
+          .
+        </ConsentCheckbox>
+        <ConsentCheckbox
+          checked={agreements.parent}
+          onChange={(checked) => setAgreements((prev) => ({ ...prev, parent: checked }))}
+        >
+          Если участнику меньше 18 лет, эту анкету должен заполнить его родитель или законный представитель.
+          Продолжая, вы подтверждаете, что вы либо участник 18+, либо родитель или законный представитель.
+        </ConsentCheckbox>
+      </section>
+
+      <Divider />
+
+      {msg ? (
+        <p className={isMsgError ? "error" : styles.successMsg} role="status">
+          {msg}
+        </p>
+      ) : null}
+
+      <section className={styles.actions}>
+        <button className="btn secondary" type="button" onClick={() => void saveDraft()} disabled={saving || submitting}>
+          {saving ? "Сохранение..." : "Сохранить черновик"}
         </button>
-        <button className="btn" type="button" onClick={() => void submitFinal()}>
-          Отправить тест
+        <button className="btn" type="button" onClick={() => void submitFinal()} disabled={saving || submitting}>
+          {submitting ? "Отправка..." : "Отправить тест"}
         </button>
-        <Link className="btn secondary" href="/application/social-status">
+        <Link className="btn secondary" href="/application/motivation">
           Далее
         </Link>
-      </div>
+      </section>
     </div>
   );
 }

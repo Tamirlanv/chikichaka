@@ -27,7 +27,7 @@ function LoginFormInner() {
     formState: { errors, isSubmitting },
   } = useForm<Form>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: "", password: "" },
+    defaultValues: { email: "", password: "", remember_me: false },
   });
 
   async function onSubmit(data: Form) {
@@ -101,6 +101,34 @@ function LoginFormInner() {
                     error={errors.password?.message}
                     autoComplete="current-password"
                   />
+                )}
+              />
+              <Controller
+                name="remember_me"
+                control={control}
+                render={({ field }) => (
+                  <div className={styles.checkboxRowCenter}>
+                    <button
+                      type="button"
+                      className={`${styles.checkboxBtn} ${field.value ? styles.checkboxBtnChecked : ""}`}
+                      onClick={() => field.onChange(!field.value)}
+                      aria-label="Запомнить меня"
+                      aria-pressed={field.value}
+                    >
+                      {field.value ? (
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+                          <path
+                            d="M2 6L5 9L10 3"
+                            stroke="white"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      ) : null}
+                    </button>
+                    <p className={styles.checkboxText}>Запомнить меня</p>
+                  </div>
                 )}
               />
             </div>

@@ -35,16 +35,29 @@ from invision_api.services import auth_service
 router = APIRouter()
 
 
-def _set_auth_cookies(response: Response, access: str, refresh: str) -> None:
+def _set_auth_cookies(
+    response: Response,
+    access: str,
+    refresh: str,
+    *,
+    persistent_days: int | None = None,
+) -> None:
     settings = get_settings()
     secure = settings.environment == "production"
+    access_max_age = settings.access_token_expire_minutes * 60
+    refresh_max_age = settings.refresh_token_expire_days * 24 * 60 * 60
+    if persistent_days is not None:
+        ttl = max(0, int(persistent_days * 24 * 60 * 60))
+        access_max_age = ttl
+        refresh_max_age = ttl
+
     response.set_cookie(
         key="invision_access",
         value=access,
         httponly=True,
         secure=secure,
         samesite="lax",
-        max_age=settings.access_token_expire_minutes * 60,
+        max_age=access_max_age if persistent_days is not None else None,
         path="/",
     )
     response.set_cookie(
@@ -53,7 +66,7 @@ def _set_auth_cookies(response: Response, access: str, refresh: str) -> None:
         httponly=True,
         secure=secure,
         samesite="lax",
-        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+        max_age=refresh_max_age if persistent_days is not None else None,
         path="/",
     )
 
@@ -89,9 +102,15 @@ def register_complete(
 
 @router.post("/login", response_model=TokenResponse)
 def login(response: Response, body: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    settings = get_settings()
     user = auth_service.authenticate(db, str(body.email), body.password)
     access, refresh, _jti = auth_service.issue_tokens(user.id)
-    _set_auth_cookies(response, access, refresh)
+    _set_auth_cookies(
+        response,
+        access,
+        refresh,
+        persistent_days=settings.refresh_token_expire_days if body.remember_me else None,
+    )
     return TokenResponse(access_token=access, refresh_token=refresh)
 
 
