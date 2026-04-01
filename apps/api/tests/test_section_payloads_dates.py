@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from invision_api.services.section_payloads import (
-    AchievementActivityItem,
+    AchievementsActivitiesSectionPayload,
     EducationItemPayload,
     EducationSectionPayload,
     PersonalSectionPayload,
@@ -56,17 +56,19 @@ def test_education_nested_dates() -> None:
     assert payload.entries[0].end_date == date(2024, 5, 31)
 
 
-def test_activity_dates() -> None:
-    a = AchievementActivityItem.model_validate(
+def test_achievements_flat_model() -> None:
+    a = AchievementsActivitiesSectionPayload.model_validate(
         {
-            "category": "x",
-            "title": "y",
-            "start_date": "10.10.2021",
-            "end_date": "",
+            "achievements_text": "x" * 250,
+            "role": "Координатор",
+            "year": "2024",
+            "links": [{"link_type": "github", "label": "GitHub", "url": "https://github.com/test"}],
         }
     )
-    assert a.start_date == date(2021, 10, 10)
-    assert a.end_date is None
+    assert len(a.achievements_text) == 250
+    assert a.role == "Координатор"
+    assert a.year == "2024"
+    assert len(a.links) == 1
 
 
 def test_invalid_date_rejected() -> None:

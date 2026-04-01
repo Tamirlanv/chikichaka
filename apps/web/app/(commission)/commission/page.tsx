@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { CommissionSidebar } from "@/components/commission/CommissionSidebar";
@@ -21,6 +21,14 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 export default function CommissionPage() {
+  return (
+    <Suspense>
+      <CommissionPageInner />
+    </Suspense>
+  );
+}
+
+function CommissionPageInner() {
   const params = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
