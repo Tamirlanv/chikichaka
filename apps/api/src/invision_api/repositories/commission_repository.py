@@ -51,6 +51,39 @@ def upsert_projection_for_application(db: Session, app: Application) -> Applicat
         row.current_stage = app.current_stage
         row.submitted_at = app.submitted_at
         row.updated_at = datetime.now(tz=UTC)
+
+    contact_payload: dict = {}
+    personal_payload: dict = {}
+    education_payload: dict = {}
+    for ss in (app.section_states or []):
+        if ss.section_key == "contact" and isinstance(ss.payload, dict):
+            contact_payload = ss.payload
+        elif ss.section_key == "personal" and isinstance(ss.payload, dict):
+            personal_payload = ss.payload
+        elif ss.section_key == "education" and isinstance(ss.payload, dict):
+            education_payload = ss.payload
+
+    row.city = contact_payload.get("city") or personal_payload.get("city") or None
+    row.phone = contact_payload.get("phone_e164") or None
+    row.program = education_payload.get("certificate_proof_kind") or None
+
+    dob_raw = personal_payload.get("date_of_birth")
+    if dob_raw:
+        try:
+            from datetime import date as _date
+
+            if isinstance(dob_raw, str) and len(dob_raw) >= 10:
+                dob = _date.fromisoformat(dob_raw[:10])
+                today = datetime.now(tz=UTC).date()
+                age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+                row.age = age
+            else:
+                row.age = None
+        except (ValueError, TypeError):
+            row.age = None
+    else:
+        row.age = None
+
     # Pull final decision if exists.
     decision = db.scalars(select(AdmissionDecision).where(AdmissionDecision.application_id == app.id)).first()
     row.final_decision = decision.final_decision_status if decision else None

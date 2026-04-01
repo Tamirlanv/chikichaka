@@ -79,6 +79,28 @@ export type ApplicationAISummaryView = {
   status: "not_generated" | "ready" | "failed";
 };
 
+export type ValidationCheckResult = {
+  status: string;
+  result: Record<string, unknown> | null;
+  updatedAt: string | null;
+};
+
+export type ValidationReport = {
+  runId: string;
+  candidateId: string;
+  applicationId: string;
+  overallStatus: string;
+  checks: {
+    links: ValidationCheckResult | null;
+    videoPresentation: ValidationCheckResult | null;
+    certificates: ValidationCheckResult | null;
+  };
+  warnings: string[];
+  errors: string[];
+  explainability: string[];
+  updatedAt: string | null;
+};
+
 export type CommissionApplicationDetailView = {
   application_id: string;
   submitted_at: string | null;
@@ -112,6 +134,7 @@ export type CommissionApplicationDetailView = {
   portfolio: Record<string, unknown> | null;
   essay: Record<string, unknown> | null;
   aiSummary: ApplicationAISummaryView | null;
+  validationReport?: ValidationReport | null;
   review: {
     rubricScores: Array<{
       criterion: string;

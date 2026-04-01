@@ -7,7 +7,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help install install-frontend install-api infra frontend backend worker migrate init-db seed docker-up docker-down smoke smoke-services
+.PHONY: help install install-frontend install-api infra frontend backend worker migrate init-db seed docker-up docker-down smoke smoke-services test-integration test-e2e check-invariants
 
 help:
 	@echo "inVision U — commands"
@@ -29,6 +29,10 @@ help:
 	@echo "  make docker-down      - docker compose down"
 	@echo "  make smoke            - pytest (API) + vitest (web)"
 	@echo "  make smoke-services   - HTTP smoke for backend + validation services"
+	@echo ""
+	@echo "  make test-integration - run integration tests (excludes e2e)"
+	@echo "  make test-e2e         - run end-to-end pipeline test"
+	@echo "  make check-invariants - verify pipeline data-integrity invariants"
 	@echo ""
 	@echo "Direct scripts (same as above): ./scripts/frontend.sh, ./scripts/backend.sh, …"
 
@@ -72,3 +76,12 @@ smoke:
 
 smoke-services:
 	@bash scripts/smoke-services.sh
+
+test-integration:
+	cd apps/api && PYTHONPATH=src python3 -m pytest tests/ -v --tb=short -x -k "not e2e"
+
+test-e2e:
+	cd apps/api && PYTHONPATH=src RUN_E2E=1 python3 -m pytest tests/test_e2e_pipeline.py -v --tb=short
+
+check-invariants:
+	@set -a && [ -f .env ] && . ./.env; set +a && cd apps/api && PYTHONPATH=src python3 ../../scripts/check_pipeline_invariants.py

@@ -11,6 +11,7 @@ import { CandidateSummaryCard } from "@/components/commission/detail/CandidateSu
 import { CommentsPanel } from "@/components/commission/detail/CommentsPanel";
 import { RubricPanel } from "@/components/commission/detail/RubricPanel";
 import { StagePipeline } from "@/components/commission/detail/StagePipeline";
+import { ValidationReportCard } from "@/components/commission/ValidationReportCard";
 import { ApiError } from "@/lib/api-client";
 import { getCommissionApplicationDetail, getCommissionRole } from "@/lib/commission/query";
 import { permissionsFromRole } from "@/lib/commission/permissions";
@@ -81,6 +82,7 @@ export default function CommissionApplicationDetailPage() {
         <aside style={{ display: "grid", gap: 12 }}>
           <CandidateSummaryCard detail={detail} />
           <AISummaryCard ai={detail.aiSummary} />
+          <ValidationReportCard report={detail.validationReport} />
         </aside>
 
         <div className={styles.main}>

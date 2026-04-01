@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { useForm, Controller } from "react-hook-form";
+import { useForm, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { apiFetch, apiFetchCached, ApiError, bustApiCache, uploadDocumentForm } from "@/lib/api-client";
 import { educationSchema } from "@/lib/validation";
@@ -13,6 +13,7 @@ import { FileUploadField, type UploadedFileDisplay } from "@/components/applicat
 import { ConsentCheckbox } from "@/components/application/ConsentCheckbox";
 import { PillSegmentedControl } from "@/components/application/PillSegmentedControl";
 import { PresentationInstructionModal } from "@/components/application/PresentationInstructionModal";
+import { useLinkCheck } from "@/lib/hooks/useLinkCheck";
 import formStyles from "@/components/application/form-ui.module.css";
 import eduStyles from "./education.module.css";
 import { z } from "zod";
@@ -69,6 +70,9 @@ export default function EducationPage() {
     resolver: zodResolver(educationSchema),
     defaultValues: DEFAULTS as Form,
   });
+
+  const videoUrl = useWatch({ control, name: "presentation_video_url" });
+  const linkCheck = useLinkCheck(videoUrl);
 
   const uploadDocument = useCallback(
     async (file: File | null, documentType: string, kind: FileKind) => {
@@ -309,6 +313,22 @@ export default function EducationPage() {
           {errors.presentation_video_url && (
             <p className="error" style={{ margin: "8px 0 0 0" }}>
               {errors.presentation_video_url.message}
+            </p>
+          )}
+          {linkCheck.statusMessage && (
+            <p
+              style={{
+                margin: "8px 0 0 0",
+                fontSize: 13,
+                color:
+                  linkCheck.status === "checking"
+                    ? "var(--text-secondary, #888)"
+                    : linkCheck.status === "reachable"
+                      ? "var(--success, #2e7d32)"
+                      : "var(--warning, #e65100)",
+              }}
+            >
+              {linkCheck.statusMessage}
             </p>
           )}
         </div>

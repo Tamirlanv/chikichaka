@@ -26,6 +26,7 @@ class HttpProbeResult(BaseModel):
     timeout: bool = False
     network_error: bool = False
     error_text: str | None = None
+    body_snippet: str | None = None
 
 
 class NormalizedUrl(BaseModel):

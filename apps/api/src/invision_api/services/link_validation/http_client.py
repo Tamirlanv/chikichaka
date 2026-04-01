@@ -2,11 +2,29 @@ from __future__ import annotations
 
 import random
 import time
+from urllib.parse import urlsplit
 
 import httpx
 
 from invision_api.services.link_validation.config import LinkValidationConfig
 from invision_api.services.link_validation.types import HttpProbeResult
+
+_CLOUD_HOSTS = {
+    "drive.google.com",
+    "docs.google.com",
+    "www.dropbox.com",
+    "dropbox.com",
+    "db.tt",
+    "onedrive.live.com",
+    "1drv.ms",
+}
+
+_BODY_SNIPPET_MAX = 8192
+
+
+def _is_cloud_url(url: str) -> bool:
+    host = (urlsplit(url).hostname or "").lower()
+    return any(host == h or host.endswith("." + h) for h in _CLOUD_HOSTS)
 
 
 class HttpProbeClient:
@@ -16,6 +34,7 @@ class HttpProbeClient:
     def probe(self, url: str) -> HttpProbeResult:
         timeout = httpx.Timeout(connect=self._config.connect_timeout_sec, read=self._config.read_timeout_sec, write=5.0, pool=5.0)
         last_error: str | None = None
+        needs_body = _is_cloud_url(url)
 
         for attempt in range(1, self._config.retry_attempts + 1):
             started = time.perf_counter()
@@ -24,16 +43,26 @@ class HttpProbeClient:
                     follow_redirects=True,
                     timeout=timeout,
                     max_redirects=self._config.max_redirects,
-                    headers={"User-Agent": "invision-link-validator/1.0"},
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; invision-link-validator/1.0)"},
                 ) as client:
-                    response = client.head(url)
-                    if response.status_code in {405, 403, 400}:
-                        response = client.get(url, headers={"Range": "bytes=0-0"})
+                    if needs_body:
+                        response = client.get(url)
+                    else:
+                        response = client.head(url)
+                        if response.status_code in {405, 403, 400}:
+                            response = client.get(url, headers={"Range": "bytes=0-0"})
 
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
                 history = response.history or []
                 content_length_header = response.headers.get("content-length")
                 content_length = int(content_length_header) if content_length_header and content_length_header.isdigit() else None
+
+                body_snippet: str | None = None
+                if needs_body:
+                    ct = (response.headers.get("content-type") or "").lower()
+                    if "text/html" in ct:
+                        body_snippet = response.text[:_BODY_SNIPPET_MAX]
+
                 return HttpProbeResult(
                     final_url=str(response.url),
                     status_code=response.status_code,
@@ -42,6 +71,7 @@ class HttpProbeClient:
                     redirected=bool(history),
                     redirect_count=len(history),
                     response_time_ms=elapsed_ms,
+                    body_snippet=body_snippet,
                 )
             except httpx.TimeoutException:
                 last_error = "Request timeout"

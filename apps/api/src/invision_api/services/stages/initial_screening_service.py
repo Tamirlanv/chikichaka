@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -9,10 +10,12 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from invision_api.models.application import Application
-from invision_api.models.enums import ApplicationStage, ScreeningResult
+from invision_api.models.enums import ApplicationStage, ScreeningResult, SectionKey
 from invision_api.repositories import admissions_repository, document_repository
 from invision_api.services import application_service, job_dispatcher_service, text_extraction_service
 from invision_api.services.stage_transition_policy import TransitionContext, TransitionName, apply_transition
+
+logger = logging.getLogger(__name__)
 
 
 def enqueue_post_submit_jobs(db: Session, application_id: UUID) -> None:
@@ -48,6 +51,10 @@ def run_screening_checks_and_record(
 ) -> Any:
     """Run extraction, evaluate completeness, persist InitialScreeningResult (no automatic transition)."""
     run_extractions_for_application(db, app.id)
+    try:
+        run_post_submit_content_analysis(db, app)
+    except Exception:
+        logger.exception("post-submit content analysis failed for app %s", app.id)
     missing = _collect_missing_items(db, app)
     issues: dict[str, Any] = {}
     if missing["missing_sections"]:
@@ -93,3 +100,71 @@ def apply_screening_transition(
 def ensure_stage(db: Session, app: Application) -> None:
     if app.current_stage != ApplicationStage.initial_screening.value:
         raise ValueError("application must be in initial_screening stage")
+
+
+def run_post_submit_content_analysis(db: Session, app: Application) -> dict[str, Any]:
+    """Run definitive content analysis for growth_journey and motivation_goals.
+
+    Called during initial screening after document extraction completes.
+    Results are stored with ``source_kind='post_submit'`` for commission use
+    and never shown to the candidate.
+    """
+    results: dict[str, Any] = {}
+
+    section_payloads: dict[str, dict[str, Any]] = {}
+    for ss in (app.section_states or []):
+        if isinstance(ss.payload, dict):
+            section_payloads[ss.section_key] = ss.payload
+
+    growth_raw = section_payloads.get(SectionKey.growth_journey.value)
+    if growth_raw:
+        try:
+            from invision_api.services.section_payloads import GrowthJourneySectionPayload
+            from invision_api.services.growth_path.pipeline import run_post_submit_growth_analysis
+
+            validated = GrowthJourneySectionPayload.model_validate(growth_raw)
+            results["growth_journey"] = run_post_submit_growth_analysis(db, app.id, validated)
+        except Exception:
+            logger.exception("post-submit growth analysis failed for app %s", app.id)
+            results["growth_journey"] = {"error": "analysis_failed"}
+
+    motivation_raw = section_payloads.get(SectionKey.motivation_goals.value)
+    if motivation_raw:
+        try:
+            narrative = motivation_raw.get("narrative", "")
+            word_count = len(narrative.split()) if isinstance(narrative, str) else 0
+            char_count = len(narrative) if isinstance(narrative, str) else 0
+            was_pasted = motivation_raw.get("was_pasted", False)
+            paste_count = motivation_raw.get("paste_count", 0)
+            results["motivation_goals"] = {
+                "word_count": word_count,
+                "char_count": char_count,
+                "was_pasted": was_pasted,
+                "paste_count": paste_count,
+                "has_content": char_count >= 350,
+            }
+
+            admissions_repository.create_text_analysis_run(
+                db,
+                app.id,
+                block_key="motivation_goals",
+                source_kind="post_submit",
+                source_document_id=None,
+                model=None,
+                status="completed",
+                dimensions={
+                    "word_count": word_count,
+                    "char_count": char_count,
+                },
+                explanations={
+                    "was_pasted": was_pasted,
+                    "paste_count": paste_count,
+                    "has_content": char_count >= 350,
+                },
+                flags={"has_llm_summary": False},
+            )
+        except Exception:
+            logger.exception("post-submit motivation analysis failed for app %s", app.id)
+            results["motivation_goals"] = {"error": "analysis_failed"}
+
+    return results

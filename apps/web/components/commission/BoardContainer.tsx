@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DndContext, type DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { COMMISSION_STAGE_ORDER, COMMISSION_STAGE_TITLES } from "@/lib/commission/constants";
@@ -13,7 +13,7 @@ import {
   moveApplicationToNextStage,
   setAttentionFlag,
 } from "@/lib/commission/query";
-import { startPollingUpdates } from "@/lib/commission/revalidate";
+import { subscribeToUpdates, unsubscribeFromUpdates, stopPolling } from "@/lib/commission/revalidate";
 import type { CommissionBoardFilters, CommissionBoardResponse, CommissionRole, CommissionStage } from "@/lib/commission/types";
 import { BoardColumn } from "./BoardColumn";
 
@@ -24,36 +24,57 @@ type Props = {
 
 const MAIN_BOARD_STAGES: CommissionStage[] = COMMISSION_STAGE_ORDER.filter((s) => s !== "result");
 
+function errorStatusCode(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" ? status : null;
+}
+
 export function BoardContainer({ filters, onError }: Props) {
   const [role, setRole] = useState<CommissionRole | null>(null);
   const [data, setData] = useState<CommissionBoardResponse | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
+  const [pollingEnabled, setPollingEnabled] = useState(true);
+  const [dataLoaded, setDataLoaded] = useState(false);
 
   const permissions = useMemo(() => permissionsFromRole(role), [role]);
   const sensors = useSensors(useSensor(PointerSensor));
 
-  async function refresh() {
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+
+  const refresh = useCallback(async () => {
     try {
-      const [r, d] = await Promise.all([getCommissionRole(), getCommissionBoard(filters)]);
+      const [r, d] = await Promise.all([getCommissionRole(), getCommissionBoard(filtersRef.current)]);
       setRole(r);
       setData(d);
+      setDataLoaded(true);
+      setPollingEnabled(true);
     } catch (e) {
-      onError(e instanceof Error ? e.message : "Не удалось загрузить board");
+      const status = errorStatusCode(e);
+      if (status === 401 || status === 403) {
+        setPollingEnabled(false);
+      }
+      onErrorRef.current(e instanceof Error ? e.message : "Не удалось загрузить board");
     }
-  }
+  }, []);
 
   useEffect(() => {
     void refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.program, filters.range]);
+  }, [filters.search, filters.program, filters.range, refresh]);
 
   useEffect(() => {
-    const stop = startPollingUpdates(() => {
-      void refresh();
+    if (!pollingEnabled || !dataLoaded || !permissions.canViewBoard) {
+      return;
+    }
+    const listener = () => { void refresh(); };
+    subscribeToUpdates(listener, {
+      onUnauthorized: () => { setPollingEnabled(false); },
     });
-    return stop;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.program, filters.range]);
+    return () => { unsubscribeFromUpdates(listener); };
+  }, [pollingEnabled, dataLoaded, permissions.canViewBoard, refresh]);
 
   async function onDropCard(applicationId: string, toStage: CommissionStage) {
     if (!permissions.canMove || !data) return;

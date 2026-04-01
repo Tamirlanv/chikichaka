@@ -12,8 +12,7 @@ const TABS = [
   { href: "/application/internal-test", label: "Тест", value: "internal_test" },
   { href: "/application/motivation", label: "Мотивация", value: "motivation" },
   { href: "/application/growth", label: "Путь", value: "growth" },
-  { href: "/application/portfolio", label: "Портфолио", value: "portfolio" },
-  { href: "/application/essay", label: "Эссе", value: "essay" },
+  { href: "/application/achievements", label: "Достижения", value: "achievements" },
 ] as const;
 
 function pathToValue(path: string): string {

@@ -22,7 +22,7 @@ export function getUserFacingMessage(status: number, rawDetail: string): string 
     return "Неверный email или пароль.";
   }
   if (status === 403) {
-    return "Нет доступа.";
+    return "Нет доступа. Войдите под аккаунтом кандидата.";
   }
   if (status === 404) {
     return "Данные не найдены.";

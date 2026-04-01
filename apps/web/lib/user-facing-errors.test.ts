@@ -24,4 +24,8 @@ describe("getUserFacingMessage", () => {
   it("maps 409 without echoing backend", () => {
     expect(getUserFacingMessage(409, "anything from server")).toBe("Этот email уже зарегистрирован.");
   });
+
+  it("shows clearer message for 403", () => {
+    expect(getUserFacingMessage(403, "forbidden")).toBe("Нет доступа. Войдите под аккаунтом кандидата.");
+  });
 });

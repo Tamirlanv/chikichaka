@@ -418,6 +418,37 @@ def submit_application(db: Session, user: User) -> Application:
     from invision_api.services.stages import initial_screening_service
 
     initial_screening_service.enqueue_post_submit_jobs(db, app.id)
+
+    from invision_api.repositories import commission_repository
+
+    commission_repository.upsert_projection_for_application(db, app)
+
+    from invision_api.services import audit_log_service
+
+    audit_log_service.write_audit(
+        db,
+        entity_type="application",
+        entity_id=app.id,
+        action="application_submitted",
+        actor_user_id=user.id,
+        before_data={"state": "in_progress", "current_stage": "application"},
+        after_data={
+            "state": app.state,
+            "current_stage": app.current_stage,
+            "submitted_at": app.submitted_at.isoformat(),
+        },
+    )
+
     db.commit()
     db.refresh(app)
+
+    try:
+        from invision_api.services import validation_trigger_service
+        validation_trigger_service.trigger_validation_run(
+            application_id=app.id,
+            candidate_id=profile.id,
+        )
+    except Exception:
+        pass
+
     return app
