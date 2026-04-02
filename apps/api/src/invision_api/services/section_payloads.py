@@ -134,6 +134,8 @@ class EducationSectionPayload(BaseModel):
     english_document_id: UUID | None = None
     certificate_document_id: UUID | None = None
     additional_document_id: UUID | None = None
+    consent_privacy: bool = False
+    consent_parent: bool = False
 
 
 class AchievementLinkItem(BaseModel):
@@ -168,6 +170,8 @@ class MotivationGoalsSectionPayload(BaseModel):
     paste_count: int = Field(default=0, ge=0)
     last_pasted_at: datetime | None = None
     motivation_document_id: UUID | None = None
+    consent_privacy: bool = False
+    consent_parent: bool = False
 
     @field_validator("last_pasted_at", mode="before")
     @classmethod
