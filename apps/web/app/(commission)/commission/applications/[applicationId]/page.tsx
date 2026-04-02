@@ -94,7 +94,7 @@ export default function CommissionApplicationDetailPage() {
     setDeleting(true);
     setDeleteError(null);
     try {
-      await deleteCommissionApplication(applicationId);
+      await deleteCommissionApplication(applicationId!);
       router.push("/commission");
     } catch (e) {
       setDeleteError(e instanceof Error ? e.message : "Не удалось удалить заявку");
@@ -116,7 +116,7 @@ export default function CommissionApplicationDetailPage() {
       setLoadError(null);
       try {
         const [detail, commissionRole] = await Promise.all([
-          getCommissionApplicationPersonalInfo(applicationId),
+          getCommissionApplicationPersonalInfo(applicationId!),
           getCommissionRole(),
         ]);
         if (cancelled) return;
@@ -144,7 +144,7 @@ export default function CommissionApplicationDetailPage() {
     let cancelled = false;
     testFetchedRef.current = true;
     setTestLoading(true);
-    getCommissionApplicationTestInfo(applicationId)
+    getCommissionApplicationTestInfo(applicationId!)
       .then((res) => {
         if (!cancelled) setTestData(res);
       })
