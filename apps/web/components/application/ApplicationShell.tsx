@@ -59,6 +59,7 @@ export function ApplicationShell({ children }: Props) {
   const [review, setReview] = useState<ReviewData | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const [resetKey, setResetKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,6 +131,22 @@ export function ApplicationShell({ children }: Props) {
     void loadReview();
   }
 
+  async function handleClearForm() {
+    try {
+      await apiFetch("/candidates/me/application/sections", { method: "DELETE" });
+    } catch {
+      /* application may not exist yet — clear client state anyway */
+    }
+    clearAllDrafts();
+    bustApiCache("/candidates/me");
+    bustApiCache("/candidates/me/application");
+    bustApiCache("/candidates/me/application/review");
+    bustApiCache("/candidates/me/application/status");
+    bustApiCache("/auth/me");
+    setReview(null);
+    setResetKey((k) => k + 1);
+  }
+
   async function handleSubmit(): Promise<SubmitResponse> {
     const submitResponse = await apiFetch<SubmitResponse>("/candidates/me/application/submit", { method: "POST" });
     bustApiCache("/candidates/me");
@@ -184,6 +201,7 @@ export function ApplicationShell({ children }: Props) {
         }
         showSubmitButton={!inDataVerificationStage}
         onSubmitClick={handleOpenModal}
+        onClearClick={() => void handleClearForm()}
       />
       {!inDataVerificationStage ? <ApplicationStickyNav /> : null}
       <div className={styles.layoutRow}>
@@ -193,7 +211,7 @@ export function ApplicationShell({ children }: Props) {
           ) : inDataVerificationStage ? (
             <DataVerificationView status={statusData} onRetrySubmit={handleRetrySubmit} />
           ) : (
-            children
+            <div key={resetKey}>{children}</div>
           )}
         </main>
         <div className={styles.sidebarCol}>

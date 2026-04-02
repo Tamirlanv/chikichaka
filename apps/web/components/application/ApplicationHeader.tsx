@@ -7,6 +7,7 @@ type Props = {
   subtitle?: string;
   showSubmitButton?: boolean;
   onSubmitClick?: () => void;
+  onClearClick?: () => void;
 };
 
 export function ApplicationHeader({
@@ -14,6 +15,7 @@ export function ApplicationHeader({
   subtitle = "Заполните форму, загрузите документы и отправляйте заявку",
   showSubmitButton = true,
   onSubmitClick,
+  onClearClick,
 }: Props) {
   const name = candidateName?.trim() || "кандидат";
 
@@ -25,9 +27,14 @@ export function ApplicationHeader({
           <p className={styles.subtitle}>{subtitle}</p>
         </div>
         {showSubmitButton ? (
-          <button type="button" className="btn" onClick={onSubmitClick}>
-            Отправить анкету
-          </button>
+          <div className={styles.buttons}>
+            <button type="button" className={styles.clearButton} onClick={onClearClick}>
+              Очистить анкету
+            </button>
+            <button type="button" className="btn" onClick={onSubmitClick}>
+              Отправить анкету
+            </button>
+          </div>
         ) : null}
       </div>
     </header>

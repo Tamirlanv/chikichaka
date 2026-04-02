@@ -712,3 +712,22 @@ def collect_referenced_document_ids(app: Application) -> set[UUID]:
             except ValueError:
                 pass
     return refs
+
+
+def reset_application_sections(db: Session, app: Application) -> None:
+    """Delete all section data so the candidate can start the form from scratch."""
+    for ss in list(app.section_states):
+        db.delete(ss)
+    for ans in list(app.internal_test_answers):
+        db.delete(ans)
+    for er in list(app.education_records):
+        db.delete(er)
+    for doc in list(app.documents):
+        db.delete(doc)
+
+    app.state = ApplicationState.draft.value
+    app.submitted_at = None
+    app.locked_after_submit = False
+
+    db.commit()
+    db.refresh(app)

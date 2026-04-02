@@ -165,6 +165,25 @@ def patch_section(
     }
 
 
+@router.delete("/me/application/sections")
+def reset_all_sections(
+    user: User = Depends(require_roles(RoleName.candidate)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    profile = get_candidate_profile_by_user(db, user.id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    app = get_application_for_candidate(db, profile.id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Заявление не найдено")
+    if app.locked_after_submit:
+        raise HTTPException(status_code=409, detail="Заявление заблокировано после отправки")
+
+    application_service.reset_application_sections(db, app)
+
+    return {"status": "cleared", "application_id": str(app.id)}
+
+
 @router.get("/me/application/stage")
 def get_my_stage(
     user: User = Depends(require_roles(RoleName.candidate)),
