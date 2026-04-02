@@ -177,7 +177,7 @@ export function TestInfoSection({ data, onNext }: Props) {
         ))}
         <ScoreCard
           label="Итог"
-          value={SCORE_ROW_1_KEYS.concat(SCORE_ROW_2_KEYS).reduce(
+          value={[...SCORE_ROW_1_KEYS, ...SCORE_ROW_2_KEYS].reduce(
             (sum, k) => sum + scaleToFive(rawScores[k] ?? 0, maxTraitRaw),
             0,
           )}
