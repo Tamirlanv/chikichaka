@@ -1,169 +1,252 @@
 # inVision U — Admissions Platform
 
-Monorepo: **Next.js (App Router)** candidate portal + **FastAPI** API + **PostgreSQL** + **Redis**.
+## 1. Project overview
 
-## Prerequisites
+**inVision U** is a monorepo for a university admissions workflow: candidates submit a structured application, automated checks and a **processing pipeline** produce **derived signals and summaries**, and the **committee** reviews applications in a dedicated UI. **AI/LLM is assistive only**—rules, validation, and human review come first; models never issue final admission decisions.
 
-- Node 22 + [pnpm](https://pnpm.io) 9
-- Python 3.12
-- Docker (optional, recommended for Postgres/Redis)
+Components at a glance:
 
-## Environment
+- **Candidate app** — multi-section application, drafts, internal test, documents, links, video, certificates.
+- **Commission app** — queues, application detail, reviews, AI-assisted summaries with **human-in-the-loop** review.
+- **Validation & processing** — document/link/video checks, data verification stage (“Проверка данных”), text analysis runs, scoring heuristics.
+- **Background work** — Redis-backed jobs (worker process) for async pipeline steps.
 
-Copy [.env.example](.env.example) to `.env` at the repository root and set:
+---
 
-- `DATABASE_URL` — `postgresql+psycopg://USER:PASS@HOST:5432/DB` (use `postgresql+psycopg://` for this codebase)
-- `SECRET_KEY` — at least 32 characters
-- `REDIS_URL`
-- `RESEND_API_KEY` — required for registration (verification email)
-- `EMAIL_FROM` — sender address on a domain **verified in Resend** (e.g. `noreply@oku.com.kz`)
-- `OPENAI_API_KEY` — optional; used only for future committee/assistive features (no autonomous admission decisions)
+## 2. Core features
 
-## Quick commands (Makefile + `scripts/`)
+| Area | What it does |
+|------|----------------|
+| **Application** | Sectioned form (personal info, growth path, motivation, achievements, internal test, etc.), draft save, submit locks editable state where defined. |
+| **Validation** | Pluggable checks on uploads, URLs, video; orchestrated validation stage with aggregated status. |
+| **Data check** | “Проверка данных” — consolidates verification results; prepares compact payloads for optional LLM summaries. |
+| **Derived values** | Heuristic scores, `TextAnalysisRun` records, personality profile from internal test, sidebar “attention” signals for committee. |
+| **Committee** | Review workflows, sorting/filtering, recommendations; final outcome is **committee decision**, not model output. |
 
-From the repository root:
+---
 
-| Command | Description |
-|--------|-------------|
-| `make help` | List all targets |
-| `make install` | Install frontend (pnpm) + API venv + pip |
-| `make install-frontend` | Only `pnpm install` |
-| `make install-api` | Only Python venv + `requirements.txt` |
-| `make infra` | `docker compose up -d postgres redis` |
-| `make init-db` | Create `POSTGRES_USER` / DB on local Postgres if role is missing (see [Troubleshooting](#troubleshooting)) |
-| `make migrate` | `alembic upgrade head` |
-| `make seed` | Seed roles + internal test questions |
-| `make backend` | FastAPI dev server (port **8000**) |
-| `make frontend` | Next.js dev (port **3000**) |
-| `make worker` | Redis job worker (scaffold) |
-| `make docker-up` | Full stack: `docker compose up --build` |
-| `make docker-down` | `docker compose down` |
+## 3. Architecture (high level)
 
-Same behavior via shell: `bash scripts/backend.sh`, `bash scripts/frontend.sh`, etc.
-
-Typical local flow: `make install` → copy `.env` → `make infra` → `make migrate` → `make seed` → in two terminals: `make backend` and `make frontend`.
-
-## Local development (manual steps)
-
-### 1. Start Postgres & Redis
-
-```bash
-make infra
-# or: docker compose up -d postgres redis
+```mermaid
+flowchart LR
+  subgraph clients [Clients]
+    Web[Next.js web]
+  end
+  subgraph api_layer [API]
+    FastAPI[FastAPI]
+  end
+  subgraph data [Data]
+    PG[(PostgreSQL)]
+    Redis[(Redis)]
+  end
+  subgraph async [Async]
+    Worker[job_worker]
+  end
+  subgraph llm [LLM]
+    Hoster[LLM endpoint hoster.kz]
+    OpenAICompat[OpenAI API optional]
+  end
+  Web --> FastAPI
+  FastAPI --> PG
+  FastAPI --> Redis
+  Worker --> Redis
+  Worker --> PG
+  FastAPI --> Hoster
+  FastAPI --> OpenAICompat
 ```
 
-### 2. API
+- **Frontend** — Next.js (App Router) in `apps/web`; talks to API via `/api/v1` (rewrites in dev, public URL in prod).
+- **Backend** — FastAPI in `apps/api`, SQLAlchemy + Alembic, JWT cookies + Redis refresh revocation.
+- **Worker** — `scripts/job_worker.py` consumes Redis queue `admission_jobs` (run separately from API).
+- **Database** — PostgreSQL: applications, sections, documents, validation artifacts, committee data.
+- **Processing** — Orchestrators under `services/` and `services/stages/`; growth-path and commission AI pipelines combine **deterministic** steps with optional **LLM** calls.
+- **LLM** — See [§6 LLM integration](#6-llm-integration).
+
+Additional Node services in `apps/` (e.g. certificate/video validation) support specialized checks; they are **not** the main API but part of the broader validation story.
+
+---
+
+## 4. Tech stack
+
+| Layer | Stack |
+|-------|--------|
+| **Monorepo** | pnpm workspaces, Turbo (`turbo.json`) |
+| **Web** | Next.js 15, React 19, TypeScript, CSS modules / component styles |
+| **API** | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic, Redis |
+| **DB** | PostgreSQL 16 (Docker image locally) |
+| **Queue / cache** | Redis (sessions revocation, job queue) |
+| **Storage** | Local filesystem under `UPLOAD_ROOT` (swappable for object storage) |
+| **Email** | Resend API for verification mail |
+| **LLM** | OpenAI-compatible client where configured; internal HTTP summarizer for data-check (see §6) |
+
+---
+
+## 5. Processing pipeline
+
+**Rough flow from candidate submit to committee:**
+
+1. **Submit** — Application state advances; section payloads validated (Pydantic per section).
+2. **Post-submit analysis** — Services (e.g. `initial_screening_service`, growth-path pipeline) run **rule-based** checks (spam heuristics, stats), optional **LLM summaries** on **already structured** inputs, persist `TextAnalysisRun` / explanations.
+3. **Data verification stage** — “Проверка данных” aggregates document/link/video/certificate checks; processors may call **`LLMSummaryClient`** when `INTERNAL_LLM_SUMMARY_URL` is set.
+4. **Commission** — Reviewers see summaries, validation panels, AI-assisted text **suggestions**; `ai_review_metadata` stores model metadata; **committee** records recommendations and final judgment.
+
+**Summaries / derived values** combine: deterministic features, stored analysis runs, optional LLM JSON validated against schemas (`commission/ai/`). If LLM is disabled or fails, fallbacks keep the UI usable.
+
+---
+
+## 6. LLM integration
+
+- **Deployment default (production):** HTTP **LLM summarization** for specific tasks (e.g. data-check summaries) is intended to target a **service on hoster.kz** — configure base URL and auth via **`INTERNAL_LLM_SUMMARY_URL`** and optionally **`INTERNAL_LLM_API_KEY`** (see `services/data_check/llm/llm_summary_client.py`).
+- **OpenAI-compatible API:** Other flows (growth path, commission AI pipeline, block analysis) use **`OPENAI_API_KEY`** / **`OPENAI_MODEL`** when set (`services/ai_provider.py`, `commission/ai/`).
+- **Role of the model:** **Auxiliary.** Pipeline order is: **validation → preprocessing → heuristics → compact payloads → optional LLM** for summarization/synthesis/explainable blurbs. **No autonomous admission decision.**
+- **Governance:** Code and copy stress **human-in-the-loop**; schema-validated LLM outputs; audit fields where implemented.
+
+---
+
+## 7. Horizontal scaling
+
+The split is intentional:
+
+- **Web** (static/serverless-friendly) and **API** (stateless workers behind a load balancer) deploy **independently**.
+- **Worker** is a **separate process**; scale **N** worker replicas against the same Redis queue to increase throughput for background jobs.
+- **PostgreSQL** is the system of record; Redis is for queues/ephemeral session data—scale Redis for HA as needed.
+- **LLM** is out-of-band HTTP; API replicas do not need sticky sessions for inference.
+
+You scale the tier that is hot (e.g. more API replicas for HTTP, more workers for backlog) without rewriting the app.
+
+---
+
+## 8. Configuration
+
+Set environment variables in **`.env` at the repository root** (and/or in the host platform). Typical keys:
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | SQLAlchemy URL (`postgresql+psycopg://…`) |
+| `SECRET_KEY` | JWT signing (≥32 chars) |
+| `REDIS_URL` | Redis for refresh revocation + job queue |
+| `CORS_ORIGINS` | Comma-separated allowed web origins |
+| `RESEND_API_KEY` / `EMAIL_FROM` | Transactional email |
+| `APP_PUBLIC_URL` | Public site URL for links |
+| `OPENAI_API_KEY` / `OPENAI_MODEL` | OpenAI-compatible LLM for API-side features |
+| `INTERNAL_LLM_SUMMARY_URL` / `INTERNAL_LLM_API_KEY` | Internal summarizer HTTP endpoint (e.g. hoster.kz) |
+| `UPLOAD_ROOT` | Upload directory for API |
+
+Frontend build/runtime may use `NEXT_PUBLIC_API_URL`, `API_INTERNAL_URL` (see `apps/web` config).
+
+---
+
+## 9. Local run
+
+**Prerequisites:** Node 22 + pnpm 9, Python 3.12, Docker (recommended for Postgres + Redis).
+
+### Infra
+
+```bash
+make infra          # docker compose: postgres + redis
+```
+
+### Database
+
+```bash
+make migrate        # alembic upgrade head
+make seed           # roles + internal test questions (+ optional commission seed via scripts/seed.py)
+```
+
+If Postgres rejects connections (wrong local role), see [Troubleshooting](#12-troubleshooting).
+
+### API
 
 ```bash
 make install-api
-make migrate
-make seed
-make backend
+make backend        # FastAPI on :8000 (see scripts/backend.sh)
 ```
 
-Health: `GET http://localhost:8000/api/v1/health`  
-OpenAPI: `http://localhost:8000/api/docs`
+Health: `GET http://localhost:8000/api/v1/health` · Docs: `http://localhost:8000/api/docs`
 
-### 3. Web
+### Web
 
 ```bash
 make install-frontend
-make frontend
+make frontend       # Next.js on :3000; proxies /api/v1 to API for cookies
 ```
 
-The Next.js dev server rewrites `/api/v1/*` to the FastAPI backend (`API_INTERNAL_URL` or `http://127.0.0.1:8000`) so **httpOnly cookies** work on `localhost:3000`.
-
-### 4. Job worker (optional)
+### Worker (recommended for full pipeline)
 
 ```bash
-make worker
+make worker         # Redis BRPOP worker (scripts/job_worker.py)
 ```
 
-## Full stack with Docker
+### One-shot convenience
 
 ```bash
-cp .env.example .env
-# Fill SECRET_KEY, RESEND_API_KEY, etc.
+make install        # pnpm + Python venv + pip
+make dev            # tmux: backend + worker + frontend (if tmux installed)
+```
+
+### Docker full stack
+
+```bash
 docker compose build
 docker compose run --rm api sh -c "cd /app/apps/api && alembic upgrade head && cd /app && PYTHONPATH=apps/api/src python scripts/seed.py"
 docker compose up
 ```
 
-- API: `http://localhost:8000`
-- Web: `http://localhost:3000`
-- Uploads persist in the `upload_data` volume (API path `/data/uploads` inside the container).
+API `http://localhost:8000`, web `http://localhost:3000`, uploads in `upload_data` volume.
 
-## Production API (Railway / Docker)
+### Other Makefile targets
 
-The API image ([`infra/docker/Dockerfile.api`](infra/docker/Dockerfile.api)) runs, on each container start:
+`make help` — full list · `make smoke` — API pytest + web vitest · `make test-e2e` — pipeline e2e test · `make check-invariants` — pipeline integrity script.
 
-1. `alembic upgrade head`
-2. [`scripts/seed_internal_test_questions.py`](scripts/seed_internal_test_questions.py) — idempotently ensures **40** active personality (`internal_test`) questions in PostgreSQL (same data as `seed_questions()` in [`scripts/seed.py`](scripts/seed.py)).
-3. `uvicorn …`
+---
 
-So a fresh production database receives the question bank without a separate manual `make seed`, as long as the API process starts with a valid `DATABASE_URL`.
+## 10. Deployment (overview)
 
-**Manual recovery** (e.g. if you deploy without this image or need to re-sync): from a shell with `DATABASE_URL` pointing at the target DB:
+| Piece | Typical target |
+|-------|----------------|
+| **Frontend** | **Vercel** — monorepo root with `apps/web` as app root / `pnpm` build (see `vercel.json`). |
+| **Backend** | **Railway** (or any container host) — build from `infra/docker/Dockerfile.api`; entrypoint runs migrations, `seed_internal_test_questions.py`, then uvicorn. |
+| **Worker** | Separate **Railway** service or second process: same image/env, command running `scripts/job_worker.py` (or equivalent). |
+| **Database / Redis** | Managed Postgres + Redis with URLs wired into API and worker. |
+| **LLM** | **`INTERNAL_LLM_SUMMARY_URL`** pointing at the **hoster.kz** summarizer; **`OPENAI_*`** for OpenAI-compatible routes as needed. |
 
-```bash
-cd /path/to/inVision && PYTHONPATH=apps/api/src python scripts/seed_internal_test_questions.py
-```
+Redeploy API after schema changes; ensure **both** API and worker share the same `DATABASE_URL` / `REDIS_URL` where applicable.
 
-(or `make seed` for roles + questions + optional commission seed).
+---
 
-**Verify the internal test contract** (as an authenticated candidate):
+## 11. Notes / important constraints
 
-- `GET /api/v1/internal-test/questions` should return a JSON array of length **40**, each item with `question_type` `single_choice` (or `multi_choice`), stable `id` values matching the frontend [`PERSONALITY_QUESTION_IDS`](apps/web/lib/personality-profile/questions.ts) pattern `00000000-0000-4000-8000-…`.
-- If the list is empty or shorter than 40, logs will show a startup warning from the API (`expected 40 active questions, found N`).
+- **Admission outcome** is **committee** responsibility; AI output is advisory and bounded by schemas and feature flags.
+- **Internal test** expects **40** active questions in DB; production API image seeds them on startup; misconfiguration logs a warning at API boot.
+- **Uploads** default to local disk; production should set `UPLOAD_ROOT` to persistent storage or replace with S3-compatible adapter later.
+- Validation microservices (`apps/certificate-validation`, `apps/video-validation`, orchestrator) may run as separate deploy units—coordinate URLs/env with the main API.
 
-## Troubleshooting
+---
 
-### `make infra` prints `infra is up to date` and does nothing
+## 12. Troubleshooting
 
-There is a real directory [`infra/`](infra/) in the repo (Dockerfiles). **GNU Make** treats the target name `infra` as that folder, so it skipped the recipe. The root [`Makefile`](Makefile) declares phony targets (including `infra`) so `make infra` always runs `docker compose up -d postgres redis`.
+### `make infra` prints “infra is up to date”
 
-### `Cannot connect to the Docker daemon`
+GNU Make can treat `infra/` as a directory target. The root `Makefile` declares **phony** targets so `make infra` always runs `docker compose up -d postgres redis`.
 
-Start **Docker Desktop** (or your Docker engine), then run `make infra` again.
+### `FATAL: role "invision" does not exist`
 
-### Wrong Compose syntax
+Port 5432 may be bound to a **non-Docker** Postgres. Either free the port for Docker Postgres, or create the role/DB (`make init-db` or `scripts/sql/init_invision_role_and_db.sql`), or point `DATABASE_URL` at an existing role.
 
-Use `docker compose up -d postgres redis` (or `make infra`), not `docker compose -d postgres …`.
+### Internal test tab shows “questions not configured”
 
-### `FATAL: role "invision" does not exist` (during `make migrate`)
+Ensure `GET /api/v1/internal-test/questions` returns **40** items after deploy; run `PYTHONPATH=apps/api/src python scripts/seed_internal_test_questions.py` against the target DB if needed.
 
-`DATABASE_URL` points to **localhost:5432**, but the server answering on that port is **not** the one that has the `invision` user (typical on macOS: **Homebrew PostgreSQL** is bound to 5432, while Docker Postgres never receives connections or uses a different data directory).
+---
 
-**Fix (pick one):**
+## 13. Commands cheat sheet
 
-1. **Use Docker Postgres only** — stop the local service so it releases 5432, then start the stack DB:
-   ```bash
-   # example: brew services stop postgresql@16   # adjust version
-   make infra
-   sleep 3
-   make migrate
-   ```
-2. **Stay on local Postgres** — create the role and database to match `.env`:
-   ```bash
-   make init-db
-   make migrate
-   ```
-   Or run the SQL yourself as a superuser: [scripts/sql/init_invision_role_and_db.sql](scripts/sql/init_invision_role_and_db.sql).
-
-3. **Use another user** — set `DATABASE_URL` / `POSTGRES_*` in `.env` to a role that already exists on your server.
-
-## Architecture notes
-
-- **Auth**: JWT access + refresh cookies (`invision_access`, `invision_refresh`); refresh rotation with Redis-backed revocation list.
-- **Applications**: One non-archived application per candidate (partial unique index). Sections stored as JSONB with Pydantic validation per section.
-- **Internal test**: Question bank in PostgreSQL (seeded on API startup via Docker/Railway, or `make seed` locally); answers persisted; final submit locks answers and completes the section. Scoring keys in [`personality_profile_service.py`](apps/api/src/invision_api/services/personality_profile_service.py) must stay aligned with [`questions.ts`](apps/web/lib/personality-profile/questions.ts) (see API/web consistency tests).
-- **Documents**: Local storage adapter under `UPLOAD_ROOT`; swap for S3-compatible storage later.
-- **Committee / AI**: Schema includes `committee_reviews` and `ai_review_metadata`; AI helpers must not perform final admission decisions.
-
-## Commands cheat sheet
-
-| Task        | Command |
-|------------|---------|
+| Task | Command |
+|------|---------|
+| Install all | `make install` |
 | Migrations | `make migrate` |
-| Create local DB role (if missing) | `make init-db` |
 | Seed roles/questions | `make seed` |
+| Backend | `make backend` |
+| Frontend | `make frontend` |
+| Worker | `make worker` |
+| Docker stack | `make docker-up` / `make docker-down` |

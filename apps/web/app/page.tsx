@@ -13,7 +13,7 @@ const RESOURCES = [
     title: "Google Disk – Презентация",
     description: "Ссылка на презентацию проекта, с показательным примером возможностей платформы",
     button: "Google Disk",
-    link: "https://drive.google.com",
+    link: "https://drive.google.com/file/d/1XLUyT3JOtyD9fhxGrGo-SSDrJPRMJWLJ/view?usp=sharing",
   },
   {
     title: "Google Disk – Документация",
