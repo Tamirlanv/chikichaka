@@ -10,6 +10,7 @@ import {
   buildInternalTestAnswerPayload,
   buildPersonalityQuestionMappings,
   mapServerAnswersToUiRecord,
+  INTERNAL_TEST_SYNC_ERRORS,
   type AnswerKey,
   type Lang,
   type ServerInternalTestQuestion,
@@ -126,7 +127,7 @@ export default function InternalTestPage() {
     setMsg(null);
     setIsMsgError(false);
     if (syncState !== "ready" || !maps) {
-      setMsg(syncError ?? "Тест временно недоступен: рассинхрон вопросов.");
+      setMsg(syncError ?? INTERNAL_TEST_SYNC_ERRORS.empty);
       setIsMsgError(true);
       return;
     }
@@ -159,7 +160,7 @@ export default function InternalTestPage() {
     setMsg(null);
     setIsMsgError(false);
     if (syncState !== "ready" || !maps) {
-      setMsg(syncError ?? "Тест временно недоступен: рассинхрон вопросов.");
+      setMsg(syncError ?? INTERNAL_TEST_SYNC_ERRORS.empty);
       setIsMsgError(true);
       return;
     }

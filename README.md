@@ -93,6 +93,29 @@ docker compose up
 - Web: `http://localhost:3000`
 - Uploads persist in the `upload_data` volume (API path `/data/uploads` inside the container).
 
+## Production API (Railway / Docker)
+
+The API image ([`infra/docker/Dockerfile.api`](infra/docker/Dockerfile.api)) runs, on each container start:
+
+1. `alembic upgrade head`
+2. [`scripts/seed_internal_test_questions.py`](scripts/seed_internal_test_questions.py) — idempotently ensures **40** active personality (`internal_test`) questions in PostgreSQL (same data as `seed_questions()` in [`scripts/seed.py`](scripts/seed.py)).
+3. `uvicorn …`
+
+So a fresh production database receives the question bank without a separate manual `make seed`, as long as the API process starts with a valid `DATABASE_URL`.
+
+**Manual recovery** (e.g. if you deploy without this image or need to re-sync): from a shell with `DATABASE_URL` pointing at the target DB:
+
+```bash
+cd /path/to/inVision && PYTHONPATH=apps/api/src python scripts/seed_internal_test_questions.py
+```
+
+(or `make seed` for roles + questions + optional commission seed).
+
+**Verify the internal test contract** (as an authenticated candidate):
+
+- `GET /api/v1/internal-test/questions` should return a JSON array of length **40**, each item with `question_type` `single_choice` (or `multi_choice`), stable `id` values matching the frontend [`PERSONALITY_QUESTION_IDS`](apps/web/lib/personality-profile/questions.ts) pattern `00000000-0000-4000-8000-…`.
+- If the list is empty or shorter than 40, logs will show a startup warning from the API (`expected 40 active questions, found N`).
+
 ## Troubleshooting
 
 ### `make infra` prints `infra is up to date` and does nothing
@@ -133,7 +156,7 @@ Use `docker compose up -d postgres redis` (or `make infra`), not `docker compose
 
 - **Auth**: JWT access + refresh cookies (`invision_access`, `invision_refresh`); refresh rotation with Redis-backed revocation list.
 - **Applications**: One non-archived application per candidate (partial unique index). Sections stored as JSONB with Pydantic validation per section.
-- **Internal test**: Question bank in PostgreSQL; answers persisted; final submit locks answers and completes the section.
+- **Internal test**: Question bank in PostgreSQL (seeded on API startup via Docker/Railway, or `make seed` locally); answers persisted; final submit locks answers and completes the section. Scoring keys in [`personality_profile_service.py`](apps/api/src/invision_api/services/personality_profile_service.py) must stay aligned with [`questions.ts`](apps/web/lib/personality-profile/questions.ts) (see API/web consistency tests).
 - **Documents**: Local storage adapter under `UPLOAD_ROOT`; swap for S3-compatible storage later.
 - **Committee / AI**: Schema includes `committee_reviews` and `ai_review_metadata`; AI helpers must not perform final admission decisions.
 

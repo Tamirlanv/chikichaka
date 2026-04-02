@@ -14,36 +14,81 @@ export type PersonalityQuestionMappings =
     }
   | { ok: false; error: string };
 
-const MISMATCH = "Тест временно недоступен: рассинхрон вопросов.";
+/** User-facing messages when GET /internal-test/questions does not match the UI contract. */
+export const INTERNAL_TEST_SYNC_ERRORS = {
+  empty:
+    "Вопросы теста ещё не настроены на сервере. Обратитесь к администратору или попробуйте позже.",
+  wrongCount: (received: number, expected: number) =>
+    `Тест временно недоступен: на сервере ${received} вопросов, ожидается ${expected}. Обратитесь к администратору.`,
+  wrongType:
+    "Тест временно недоступен: найден вопрос несовместимого типа. Обратитесь к администратору.",
+} as const;
+
+function assertChoiceQuestionTypes(
+  rows: ServerInternalTestQuestion[],
+): true | { ok: false; error: string } {
+  for (const sq of rows) {
+    if (sq.question_type !== "single_choice" && sq.question_type !== "multi_choice") {
+      return { ok: false, error: INTERNAL_TEST_SYNC_ERRORS.wrongType };
+    }
+  }
+  return true;
+}
 
 /**
- * Pair static UI questions with GET /internal-test/questions by sorted display_order.
- * Server is the source of truth for IDs used in POST /internal-test/answers.
+ * Map static UI questions to server IDs for POST /internal-test/answers.
+ * Prefer matching by stable UUID (`ui.id === server.id`); if any UI id is missing on the server,
+ * fall back to pairing by sorted `display_order` (legacy DBs with different UUIDs).
  */
 export function buildPersonalityQuestionMappings(
   uiQuestions: readonly Question[],
   serverQuestions: ServerInternalTestQuestion[],
 ): PersonalityQuestionMappings {
+  const expected = uiQuestions.length;
+
   if (!serverQuestions.length) {
-    return { ok: false, error: MISMATCH };
+    return { ok: false, error: INTERNAL_TEST_SYNC_ERRORS.empty };
   }
+
+  const serverById = new Map(serverQuestions.map((s) => [s.id, s]));
+
+  const byIdUiToServer = new Map<string, string>();
+  const byIdServerToUi = new Map<string, string>();
+  let allUiHaveSameIdOnServer = true;
+  for (const ui of uiQuestions) {
+    const sv = serverById.get(ui.id);
+    if (!sv) {
+      allUiHaveSameIdOnServer = false;
+      break;
+    }
+    byIdUiToServer.set(ui.id, sv.id);
+    byIdServerToUi.set(sv.id, ui.id);
+  }
+
+  if (allUiHaveSameIdOnServer && byIdUiToServer.size === expected) {
+    const mappedRows = uiQuestions.map((ui) => serverById.get(ui.id) as ServerInternalTestQuestion);
+    const typeCheck = assertChoiceQuestionTypes(mappedRows);
+    if (typeCheck !== true) return typeCheck;
+    return { ok: true, uiToServer: byIdUiToServer, serverToUi: byIdServerToUi };
+  }
+
   const sorted = [...serverQuestions].sort((a, b) => {
     if (a.display_order !== b.display_order) {
       return a.display_order - b.display_order;
     }
     return a.id.localeCompare(b.id);
   });
-  if (sorted.length !== uiQuestions.length) {
-    return { ok: false, error: MISMATCH };
+
+  if (sorted.length !== expected) {
+    return { ok: false, error: INTERNAL_TEST_SYNC_ERRORS.wrongCount(sorted.length, expected) };
   }
-  for (const sq of sorted) {
-    if (sq.question_type !== "single_choice" && sq.question_type !== "multi_choice") {
-      return { ok: false, error: MISMATCH };
-    }
-  }
+
+  const typeCheck = assertChoiceQuestionTypes(sorted);
+  if (typeCheck !== true) return typeCheck;
+
   const uiToServer = new Map<string, string>();
   const serverToUi = new Map<string, string>();
-  for (let i = 0; i < uiQuestions.length; i++) {
+  for (let i = 0; i < expected; i++) {
     const ui = uiQuestions[i];
     const sv = sorted[i];
     uiToServer.set(ui.id, sv.id);

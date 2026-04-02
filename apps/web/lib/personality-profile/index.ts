@@ -17,6 +17,7 @@ export {
   buildPersonalityQuestionMappings,
   buildInternalTestAnswerPayload,
   mapServerAnswersToUiRecord,
+  INTERNAL_TEST_SYNC_ERRORS,
 } from "./internal-test-mapping";
 export type { ServerInternalTestQuestion, PersonalityQuestionMappings } from "./internal-test-mapping";
 export { calculateProfile, rankTraits, getTraitPercentages, detectProfileType } from "./calculateProfile";
