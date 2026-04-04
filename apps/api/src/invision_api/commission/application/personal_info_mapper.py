@@ -324,6 +324,7 @@ def build_personal_info_view(
     actions: dict[str, Any],
     processing_status: dict[str, Any] | None = None,
     video_row: VideoValidationResultRow | None = None,
+    is_archived: bool = False,
 ) -> dict[str, Any]:
     personal = sections.get("personal") if isinstance(sections.get("personal"), dict) else {}
     contact = sections.get("contact") if isinstance(sections.get("contact"), dict) else {}
@@ -353,8 +354,11 @@ def build_personal_info_view(
     candidate_instagram = _str_or_none(contact.get("instagram"))
     video_url = _str_or_none(education.get("presentation_video_url"))
 
+    read_only = bool(is_archived)
     return {
         "applicationId": str(app.id),
+        "isArchived": read_only,
+        "readOnly": read_only,
         "candidateSummary": {
             "fullName": full_name or "Кандидат",
             "program": projection.program,
@@ -378,7 +382,7 @@ def build_personal_info_view(
         "stageContext": {
             "currentStage": mapped_stage,
             "currentStageStatus": stage_status,
-            "availableActions": ["move_forward"] if actions.get("canMoveForward") else [],
+            "availableActions": [] if read_only else (["move_forward"] if actions.get("canMoveForward") else []),
         },
         "personalInfo": {
             "basicInfo": {
@@ -406,10 +410,10 @@ def build_personal_info_view(
         "processingStatus": processing_status,
         "comments": _map_comments(comments),
         "actions": {
-            "canComment": bool(actions.get("canComment")),
-            "canMoveForward": bool(actions.get("canMoveForward")),
-            "canApproveAiInterview": bool(actions.get("canApproveAiInterview")),
-            "canGenerateAiInterview": bool(actions.get("canGenerateAiInterview")),
+            "canComment": False if read_only else bool(actions.get("canComment")),
+            "canMoveForward": False if read_only else bool(actions.get("canMoveForward")),
+            "canApproveAiInterview": False if read_only else bool(actions.get("canApproveAiInterview")),
+            "canGenerateAiInterview": False if read_only else bool(actions.get("canGenerateAiInterview")),
         },
     }
 

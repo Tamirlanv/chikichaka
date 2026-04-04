@@ -52,6 +52,29 @@ services:
       retries: 5
       start_period: 30s
 
+  # Admission job worker (Redis queue + heartbeat). Required for submit pipeline parity with production.
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.worker
+    env_file:
+      - .env
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-for-invision-local-docker-only!!}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-invision}:${POSTGRES_PASSWORD:-invision}@postgres:5432/${POSTGRES_DB:-invision}
+      REDIS_URL: redis://redis:6379/0
+      UPLOAD_ROOT: /data/uploads
+    volumes:
+      - upload_data:/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
   web:
     build:
       context: .

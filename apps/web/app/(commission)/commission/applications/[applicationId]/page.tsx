@@ -153,7 +153,12 @@ export default function CommissionApplicationDetailPage() {
 
   async function handleDelete() {
     if (!applicationId || deleteRef.current) return;
-    if (!confirm("Удалить заявку? Это действие необратимо.")) return;
+    if (
+      !confirm(
+        "Убрать заявку из активной работы? Данные сохранятся в разделе «История», кандидат начнёт заполнение заново.",
+      )
+    )
+      return;
     deleteRef.current = true;
     setDeleting(true);
     setDeleteError(null);
@@ -414,6 +419,21 @@ export default function CommissionApplicationDetailPage() {
 
         {/* ---- RIGHT MAIN CONTENT ---- */}
         <div className={styles.main}>
+          {data.readOnly ? (
+            <div
+              style={{
+                marginBottom: 16,
+                padding: "12px 16px",
+                borderRadius: 8,
+                background: "#f3f4f6",
+                border: "1px solid #e5e7eb",
+                fontSize: 14,
+                color: "#374151",
+              }}
+            >
+              Архивная заявка: только просмотр, действия комиссии недоступны.
+            </div>
+          ) : null}
           <ProcessingBanner data={data} />
           <PersonalInfoSection
             data={data}
@@ -731,7 +751,7 @@ export default function CommissionApplicationDetailPage() {
             ) : null
           )}
 
-          {permissions.canMove ? (
+          {permissions.canMove && !data.readOnly ? (
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 32 }}>
               <button
                 type="button"

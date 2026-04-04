@@ -96,6 +96,17 @@ function defaultMetrics(cards: CommissionBoardApplicationCard[]): CommissionBoar
   };
 }
 
+export async function getArchivedCommissionApplications(
+  filters: Pick<CommissionBoardFilters, "search" | "program">,
+): Promise<CommissionBoardApplicationCard[]> {
+  const p = new URLSearchParams();
+  if (filters.search.trim()) p.set("search", filters.search.trim());
+  if (filters.program) p.set("program", filters.program);
+  const q = p.toString();
+  const rows = await apiFetch<ApiCard[]>(`/commission/applications/archived${q ? `?${q}` : ""}`);
+  return rows.map(mapApiCard);
+}
+
 export async function getBoardMetrics(filters: CommissionBoardFilters): Promise<CommissionBoardMetrics> {
   try {
     const params = new URLSearchParams();
@@ -235,8 +246,15 @@ export async function createApplicationComment(applicationId: string, body: stri
   });
 }
 
-export async function deleteCommissionApplication(applicationId: string): Promise<void> {
-  await apiFetch(`/commission/applications/${applicationId}`, { method: "DELETE" });
+export type DeleteCommissionApplicationResult = {
+  archivedApplicationId: string;
+  newApplicationId: string;
+};
+
+export async function deleteCommissionApplication(applicationId: string): Promise<DeleteCommissionApplicationResult> {
+  return await apiFetch<DeleteCommissionApplicationResult>(`/commission/applications/${applicationId}`, {
+    method: "DELETE",
+  });
 }
 
 export async function getCommissionApplicationTestInfo(

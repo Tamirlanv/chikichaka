@@ -31,6 +31,7 @@ from invision_api.models.application import AIReviewMetadata, Application, Inter
 from invision_api.models.commission import ApplicationComment, ApplicationCommissionProjection, ExportJob
 from invision_api.models.enums import ApplicationStage
 from invision_api.repositories import admissions_repository, commission_repository
+from invision_api.repositories.application_repository import create_initial_application
 from invision_api.services.stage_transition_policy import TransitionContext, TransitionName, apply_transition
 from invision_api.services.stages import decision_service
 
@@ -196,6 +197,88 @@ def list_applications(
     return out
 
 
+def list_archived_applications(
+    db: Session,
+    *,
+    program: str | None,
+    search: str | None,
+    limit: int,
+    offset: int,
+) -> list[KanbanCard]:
+    rows = commission_repository.list_archived_projections(
+        db,
+        program=program,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+    out: list[KanbanCard] = []
+    for r in rows:
+        comment_count = (
+            db.scalar(select(func.count(ApplicationComment.id)).where(ApplicationComment.application_id == r.application_id)) or 0
+        )
+        v = derive_visual_status(stage_status=r.current_stage_status, final_decision_status=r.final_decision)
+        out.append(
+            KanbanCard(
+                application_id=r.application_id,
+                candidate_full_name=r.candidate_full_name,
+                program=r.program,
+                age=r.age,
+                city=r.city,
+                phone=r.phone,
+                submitted_at_iso=r.submitted_at.isoformat() if r.submitted_at else None,
+                updated_at_iso=r.updated_at.isoformat(),
+                stage_column=application_to_commission_column(r.current_stage),
+                stage_status=StageStatus(r.current_stage_status) if r.current_stage_status else None,
+                attention_flag_manual=r.attention_flag_manual,
+                final_decision=FinalDecision(r.final_decision) if r.final_decision in {x.value for x in FinalDecision} else None,
+                visual_status=v.kind,  # type: ignore[arg-type]
+                visual_reason=v.reason,
+                comment_count=comment_count,
+                has_ai_summary=r.has_ai_summary,
+                ai_recommendation=AIRecommendation(r.ai_recommendation)
+                if r.ai_recommendation in {x.value for x in AIRecommendation}
+                else None,
+            )
+        )
+    return out
+
+
+def archive_application_by_commission(
+    db: Session,
+    *,
+    application_id: UUID,
+    actor_user_id: UUID | None,
+    reason: str | None = None,
+) -> dict[str, UUID]:
+    """Mark application archived (history), create a fresh active application for the candidate."""
+    app = _load_application(db, application_id)
+    if app.is_archived:
+        raise HTTPException(status_code=409, detail="Заявка уже архивирована")
+    old_id = app.id
+    app.is_archived = True
+    db.flush()
+    commission_repository.upsert_projection_for_application(db, app)
+    new_app = create_initial_application(db, app.candidate_profile_id)
+    db.flush()
+    commission_repository.upsert_projection_for_application(db, new_app)
+    commission_audit.write_event(
+        db,
+        event_type="application_archived_by_commission",
+        entity_type="application",
+        entity_id=old_id,
+        actor_user_id=actor_user_id,
+        before={"is_archived": False},
+        after={"is_archived": True},
+        metadata={
+            "new_application_id": str(new_app.id),
+            "candidate_profile_id": str(app.candidate_profile_id),
+            "reason": (reason or "").strip() or None,
+        },
+    )
+    return {"archived_application_id": old_id, "new_application_id": new_app.id}
+
+
 def rebuild_projection(db: Session, application_id: UUID) -> ApplicationCommissionProjection:
     app = _load_application(db, application_id)
     row = commission_repository.upsert_projection_for_application(db, app)
@@ -247,14 +330,17 @@ def get_application_details(db: Session, application_id: UUID) -> dict:
     stage_status = row.current_stage_status or "new"
     current_stage = application_to_commission_column(app.current_stage)
     available_actions: list[str] = []
-    if current_stage != "result":
-        available_actions.append("set_stage_status")
-    if app.current_stage in ("initial_screening", "interview", "committee_review"):
-        available_actions.append("advance_stage")
-    if app.current_stage in ("committee_review", "decision"):
-        available_actions.append("set_final_decision")
+    if not app.is_archived:
+        if current_stage != "result":
+            available_actions.append("set_stage_status")
+        if app.current_stage in ("initial_screening", "interview", "committee_review"):
+            available_actions.append("advance_stage")
+        if app.current_stage in ("committee_review", "decision"):
+            available_actions.append("set_final_decision")
     return {
         "application_id": str(app.id),
+        "is_archived": app.is_archived,
+        "read_only": app.is_archived,
         "current_stage": app.current_stage,
         "state": app.state,
         "submitted_at": app.submitted_at.isoformat() if app.submitted_at else None,

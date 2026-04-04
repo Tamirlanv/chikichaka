@@ -153,6 +153,7 @@ def build_status(db: Session, user: User) -> dict[str, Any]:
         )
 
     return {
+        "application_id": str(app.id),
         "current_stage": app.current_stage,
         "submission_state": {
             "state": app.state,

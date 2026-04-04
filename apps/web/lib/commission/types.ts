@@ -169,6 +169,8 @@ export type CommissionApplicationDetailView = {
 
 export type CommissionApplicationPersonalInfoView = {
   applicationId: string;
+  isArchived?: boolean;
+  readOnly?: boolean;
   candidateSummary: {
     fullName: string;
     program: string | null;

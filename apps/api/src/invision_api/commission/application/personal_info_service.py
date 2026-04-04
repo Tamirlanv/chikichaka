@@ -91,13 +91,21 @@ def get_commission_application_personal_info(db: Session, *, application_id: UUI
     can_advance_stage = app.current_stage in ("interview", "committee_review")
     settings = get_settings()
     data_ok_for_generate = not settings.ai_interview_require_data_ready or is_data_processing_ready(db, application_id)
-    actions = resolve_commission_actions(
-        db,
-        actor,
-        can_advance_stage=can_advance_stage,
-        can_approve_ai_interview=bool(on_review and qs and qs.status == "draft" and 3 <= n_valid <= 5),
-        can_generate_ai_interview=bool(on_review and data_ok_for_generate),
-    )
+    if app.is_archived:
+        actions = {
+            "canComment": False,
+            "canMoveForward": False,
+            "canApproveAiInterview": False,
+            "canGenerateAiInterview": False,
+        }
+    else:
+        actions = resolve_commission_actions(
+            db,
+            actor,
+            can_advance_stage=can_advance_stage,
+            can_approve_ai_interview=bool(on_review and qs and qs.status == "draft" and 3 <= n_valid <= 5),
+            can_generate_ai_interview=bool(on_review and data_ok_for_generate),
+        )
 
     return build_personal_info_view(
         app=app,
@@ -111,6 +119,7 @@ def get_commission_application_personal_info(db: Session, *, application_id: UUI
         actions=actions,
         processing_status=processing_status,
         video_row=video_row,
+        is_archived=app.is_archived,
     )
 
 

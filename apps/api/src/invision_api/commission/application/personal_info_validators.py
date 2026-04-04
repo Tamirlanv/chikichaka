@@ -18,6 +18,8 @@ def load_submitted_application_or_404(db: Session, application_id: UUID) -> Appl
     app = admissions_repository.get_application_by_id(db, application_id)
     if not app:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
+    if app.is_archived:
+        return app
     if not app.locked_after_submit and app.submitted_at is None:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
     return app

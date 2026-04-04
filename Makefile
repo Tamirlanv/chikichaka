@@ -26,7 +26,7 @@ help:
 	@echo "  make init-db          - create POSTGRES_USER / POSTGRES_DB on local Postgres (if role missing)"
 	@echo "  make seed             - seed roles + internal test questions"
 	@echo ""
-	@echo "  make docker-up        - docker compose up --build (full stack)"
+	@echo "  make docker-up        - docker compose up --build (postgres, redis, api, worker, web)"
 	@echo "  make docker-down      - docker compose down"
 	@echo "  make smoke            - pytest (API) + vitest (web)"
 	@echo "  make smoke-services   - HTTP smoke for backend + validation services"

@@ -257,6 +257,7 @@ class ApplicationCommissionProjection(Base, TimestampMixin):
     revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     ai_interview_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     interview_preferences_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class InterviewSlotBooking(Base):

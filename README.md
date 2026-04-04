@@ -191,13 +191,20 @@ make dev            # tmux: backend + worker + frontend (if tmux installed)
 
 ### Docker full stack
 
+Starts **postgres**, **redis**, **api** (migrations + internal-test seed on boot), **worker** (Redis job queue + submit heartbeat), and **web**.
+
 ```bash
 docker compose build
-docker compose run --rm api sh -c "cd /app/apps/api && alembic upgrade head && cd /app && PYTHONPATH=apps/api/src python scripts/seed.py"
 docker compose up
 ```
 
-API `http://localhost:8000`, web `http://localhost:3000`, uploads in `upload_data` volume.
+First-time DB (roles + full [`scripts/seed.py`](scripts/seed.py) — commission user, etc.): the API container already runs `alembic` and `seed_internal_test_questions.py` on each start. Run full seed once if you need commission roles from `.env`:
+
+```bash
+docker compose run --rm api python /app/scripts/seed.py
+```
+
+API `http://localhost:8000`, web `http://localhost:3000`, uploads in `upload_data` volume. The **worker** uses the same `DATABASE_URL` / `REDIS_URL` as the API so candidate submit and data-check jobs match production.
 
 ### Other Makefile targets
 
@@ -209,7 +216,7 @@ API `http://localhost:8000`, web `http://localhost:3000`, uploads in `upload_dat
 
 | Piece | Typical target |
 |-------|----------------|
-| **Frontend** | **Vercel** — monorepo root with `apps/web` as app root / `pnpm` build (see `vercel.json`). |
+| **Frontend** | **Vercel** — set project **Root Directory** to `apps/web`; build/install commands are in [`apps/web/vercel.json`](apps/web/vercel.json) (monorepo `pnpm` + Turbo). |
 | **Backend** | **Railway** (or any container host) — build from `infra/docker/Dockerfile.api`; entrypoint runs migrations, `seed_internal_test_questions.py`, then uvicorn. Set **`COMMISSION_ADMIN_EMAIL`** and **`COMMISSION_ADMIN_PASSWORD`** (or equivalent `COMMISSION_SEED_*` vars) with **`ENVIRONMENT=production`** so the commission user is created on first API startup. |
 | **Worker** | Separate **Railway** service: build with **[`infra/docker/Dockerfile.worker`](infra/docker/Dockerfile.worker)** (Python image). Do **not** use Railpack/Node auto-build for the worker — there is no `python3` there. Same `DATABASE_URL` + `REDIS_URL` as API. |
 | **Database / Redis** | Managed Postgres + Redis with URLs wired into API and worker. |

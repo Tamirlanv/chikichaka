@@ -23,7 +23,7 @@ type NavItem = {
 const PROGRAM_ITEMS: NavItem[] = [
   { key: "main", label: "Главная", icon: "/assets/icons/fluent_home-48-filled.svg", href: "/commission" },
   { key: "docs", label: "Документы", icon: "/assets/icons/material-symbols_folder.svg", href: "/commission" },
-  { key: "history", label: "История", icon: "/assets/icons/mingcute_time-fill.svg", href: "/commission" },
+  { key: "history", label: "История", icon: "/assets/icons/mingcute_time-fill.svg", href: "/commission/history" },
 ];
 
 const COMMON_ITEMS: NavItem[] = [
@@ -103,9 +103,15 @@ export function CommissionSidebar({ isOpen, program, onProgramChange }: Props) {
         <div className={styles.section}>
           <p className={styles.sectionTitle}>Программные</p>
           {PROGRAM_ITEMS.map((item) => {
-            const active = item.key === "main" && pathname === "/commission";
+            const active =
+              (item.key === "main" && pathname === "/commission") ||
+              (item.key === "history" && pathname.startsWith("/commission/history"));
+            const href =
+              item.key === "history"
+                ? buildHrefWithProgram(item.href, program ?? programFromUrl)
+                : item.href;
             return (
-              <Link key={item.key} href={item.href} className={`${styles.item}${active ? ` ${styles.active}` : ""}`}>
+              <Link key={item.key} href={href} className={`${styles.item}${active ? ` ${styles.active}` : ""}`}>
                 <Image src={item.icon} alt="" width={20} height={20} />
                 <span className={styles.itemLabel}>{item.label}</span>
               </Link>

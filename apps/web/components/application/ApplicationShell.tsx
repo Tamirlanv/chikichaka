@@ -137,6 +137,21 @@ export function ApplicationShell({ children }: Props) {
     void loadStatus();
   }, [loadStatus]);
 
+  useEffect(() => {
+    const id = statusData?.application_id;
+    if (!id || typeof window === "undefined") return;
+    const key = "invision:lastApplicationId";
+    const prev = sessionStorage.getItem(key);
+    if (prev !== null && prev !== id) {
+      clearAllDrafts();
+      bustApiCache("/candidates/me/application");
+      bustApiCache("/candidates/me/application/status");
+      bustApiCache("/candidates/me/application/review");
+      setResetKey((k) => k + 1);
+    }
+    sessionStorage.setItem(key, id);
+  }, [statusData]);
+
   const inInterviewStage = isInterviewStage(statusData);
 
   useEffect(() => {

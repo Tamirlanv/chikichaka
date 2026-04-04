@@ -76,6 +76,25 @@ def list_applications(
     return [r.__dict__ for r in rows]
 
 
+@router.get("/applications/archived")
+def list_archived_applications(
+    program: str | None = None,
+    search: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    _: User = Depends(require_commission_role(CommissionRole.viewer)),
+    db: Session = Depends(get_db),
+) -> list[dict[str, Any]]:
+    rows = commission_service.list_archived_applications(
+        db,
+        program=program,
+        search=search,
+        limit=min(max(limit, 1), 200),
+        offset=max(offset, 0),
+    )
+    return [r.__dict__ for r in rows]
+
+
 @router.get("/metrics")
 def board_metrics(
     range: str = "week",
@@ -536,22 +555,30 @@ def get_ai_interview_candidate_session(
     return ai_interview_service.build_commission_ai_interview_session_view(db, application_id)
 
 
+class ArchiveApplicationBody(BaseModel):
+    reason: str | None = Field(default=None, max_length=2000)
+
+
 @router.delete("/applications/{application_id}")
 def delete_application(
     application_id: UUID,
-    _: User = Depends(require_commission_role(CommissionRole.admin)),
+    body: ArchiveApplicationBody | None = None,
+    user: User = Depends(require_commission_role(CommissionRole.admin)),
     db: Session = Depends(get_db),
-) -> Response:
-    """Hard-delete an application (admin / testing only). All related rows cascade."""
-    from invision_api.models.application import Application
-    from fastapi import HTTPException
-
-    app = db.get(Application, application_id)
-    if app is None:
-        raise HTTPException(status_code=404, detail="Заявка не найдена")
-    db.delete(app)
+) -> dict[str, str]:
+    """Archive application for commission history and give the candidate a fresh active application."""
+    reason = body.reason if body else None
+    out = commission_service.archive_application_by_commission(
+        db,
+        application_id=application_id,
+        actor_user_id=user.id,
+        reason=reason,
+    )
     db.commit()
-    return Response(status_code=204)
+    return {
+        "archivedApplicationId": str(out["archived_application_id"]),
+        "newApplicationId": str(out["new_application_id"]),
+    }
 
 
 @router.get("/updates")

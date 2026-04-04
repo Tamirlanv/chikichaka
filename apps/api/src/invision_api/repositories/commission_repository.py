@@ -46,12 +46,14 @@ def upsert_projection_for_application(db: Session, app: Application) -> Applicat
             candidate_full_name=full_name,
             current_stage=app.current_stage,
             submitted_at=app.submitted_at,
+            is_archived=app.is_archived,
         )
         db.add(row)
     else:
         row.candidate_full_name = full_name
         row.current_stage = app.current_stage
         row.submitted_at = app.submitted_at
+        row.is_archived = app.is_archived
         row.updated_at = datetime.now(tz=UTC)
 
     contact_payload: dict = {}
@@ -133,7 +135,9 @@ def list_projections(
     limit: int = 50,
     offset: int = 0,
 ) -> list[ApplicationCommissionProjection]:
-    stmt: Select[tuple[ApplicationCommissionProjection]] = select(ApplicationCommissionProjection)
+    stmt: Select[tuple[ApplicationCommissionProjection]] = select(ApplicationCommissionProjection).where(
+        ApplicationCommissionProjection.is_archived.is_(False)
+    )
     if stage:
         stmt = stmt.where(ApplicationCommissionProjection.current_stage == stage)
     if interview_kanban_only:
@@ -147,6 +151,34 @@ def list_projections(
                 ApplicationCommissionProjection.attention_flag_manual.is_(True),
             )
         )
+    if program:
+        stmt = stmt.where(ApplicationCommissionProjection.program == program)
+    if search:
+        q = f"%{search.strip()}%"
+        stmt = stmt.where(
+            or_(
+                ApplicationCommissionProjection.candidate_full_name.ilike(q),
+                ApplicationCommissionProjection.city.ilike(q),
+                ApplicationCommissionProjection.phone.ilike(q),
+                ApplicationCommissionProjection.program.ilike(q),
+                func.cast(ApplicationCommissionProjection.application_id, String).ilike(q),
+            )
+        )
+    stmt = stmt.order_by(ApplicationCommissionProjection.updated_at.desc()).limit(limit).offset(offset)
+    return list(db.scalars(stmt).all())
+
+
+def list_archived_projections(
+    db: Session,
+    *,
+    program: str | None = None,
+    search: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[ApplicationCommissionProjection]:
+    stmt: Select[tuple[ApplicationCommissionProjection]] = select(ApplicationCommissionProjection).where(
+        ApplicationCommissionProjection.is_archived.is_(True)
+    )
     if program:
         stmt = stmt.where(ApplicationCommissionProjection.program == program)
     if search:

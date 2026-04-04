@@ -1,4 +1,5 @@
 export type CandidateApplicationStatus = {
+  application_id?: string;
   current_stage: string;
   submission_state: {
     state: string;
