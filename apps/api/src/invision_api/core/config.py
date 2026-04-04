@@ -45,6 +45,25 @@ class Settings(BaseSettings):
 
     environment: Literal["local", "staging", "production"] = "local"
 
+    ai_interview_allow_internal_transition_bypass: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("AI_INTERVIEW_ALLOW_INTERNAL_TRANSITION_BYPASS"),
+        description=(
+            "Break-glass only (local/staging). When true, TransitionName.review_complete may skip the "
+            "commission-approved AI question set check (see transition_to_interview). "
+            "Ignored in practice when ENVIRONMENT=production: bypass transitions are always rejected. "
+            "Must be false in production."
+        ),
+    )
+    ai_interview_require_data_ready: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("AI_INTERVIEW_REQUIRE_DATA_READY"),
+        description=(
+            "When true, AI interview draft generation requires data-check run status ready. "
+            "Enable if product policy demands full data processing before question generation."
+        ),
+    )
+
     commission_seed_email: str | None = Field(
         default=None,
         validation_alias=AliasChoices(

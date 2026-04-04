@@ -3,35 +3,41 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api-client";
 
-type LinkCheckStatus = "idle" | "checking" | "reachable" | "unreachable" | "error";
+type LinkCheckStatus = "idle" | "checking" | "ok" | "invalid" | "error";
 
-type LinkCheckResult = {
-  isReachable: boolean;
-  availabilityStatus: string;
-  statusCode: number | null;
-  warnings: string[];
+export type PresentationVideoCheckResult = {
+  isValid: boolean;
+  provider: string;
+  resourceType: string;
+  isAccessible: boolean;
+  isProcessableVideo: boolean;
+  detectedMimeType: string | null;
+  detectedExtension: string | null;
   errors: string[];
+  warnings: string[];
 };
 
 type UseLinkCheckReturn = {
   status: LinkCheckStatus;
-  result: LinkCheckResult | null;
+  result: PresentationVideoCheckResult | null;
   statusMessage: string | null;
+  /** Блокировать отправку формы: ссылка проверена и не проходит как видео-презентация. */
+  shouldBlockSubmit: boolean;
 };
 
 const URL_PATTERN = /^https?:\/\/.+/i;
 const DEBOUNCE_MS = 1000;
 
 /**
- * Debounced link reachability check via ``POST /api/v1/links/validate``.
- * Informational only — never blocks form submission.
+ * Debounced проверка ссылки на видеопрезентацию через ``POST /api/v1/links/validate-presentation-video``.
  */
 export function useLinkCheck(url: string | undefined): UseLinkCheckReturn {
   const [status, setStatus] = useState<LinkCheckStatus>("idle");
-  const [result, setResult] = useState<LinkCheckResult | null>(null);
+  const [result, setResult] = useState<PresentationVideoCheckResult | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const lastCheckedRef = useRef<string>("");
+  const lastCompletedUrlRef = useRef<string>("");
 
   const check = useCallback(async (target: string) => {
     abortRef.current?.abort();
@@ -41,15 +47,10 @@ export function useLinkCheck(url: string | undefined): UseLinkCheckReturn {
 
     setStatus("checking");
     setResult(null);
+    lastCompletedUrlRef.current = "";
 
     try {
-      const res = await apiFetch<{
-        isReachable: boolean;
-        availabilityStatus: string;
-        statusCode: number | null;
-        warnings: string[];
-        errors: string[];
-      }>("/links/validate", {
+      const res = await apiFetch<PresentationVideoCheckResult>("/links/validate-presentation-video", {
         method: "POST",
         json: { url: target },
         signal: controller.signal,
@@ -57,14 +58,20 @@ export function useLinkCheck(url: string | undefined): UseLinkCheckReturn {
 
       if (controller.signal.aborted) return;
 
+      lastCompletedUrlRef.current = target;
       setResult({
-        isReachable: res.isReachable,
-        availabilityStatus: res.availabilityStatus,
-        statusCode: res.statusCode,
-        warnings: res.warnings ?? [],
+        isValid: res.isValid,
+        provider: res.provider,
+        resourceType: res.resourceType,
+        isAccessible: res.isAccessible,
+        isProcessableVideo: res.isProcessableVideo,
+        detectedMimeType: res.detectedMimeType ?? null,
+        detectedExtension: res.detectedExtension ?? null,
         errors: res.errors ?? [],
+        warnings: res.warnings ?? [],
       });
-      setStatus(res.isReachable ? "reachable" : "unreachable");
+
+      setStatus(res.isValid ? "ok" : "invalid");
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === "AbortError") return;
       if (controller.signal.aborted) return;
@@ -85,6 +92,7 @@ export function useLinkCheck(url: string | undefined): UseLinkCheckReturn {
       setStatus("idle");
       setResult(null);
       lastCheckedRef.current = "";
+      lastCompletedUrlRef.current = "";
       return;
     }
 
@@ -107,21 +115,40 @@ export function useLinkCheck(url: string | undefined): UseLinkCheckReturn {
 
   let statusMessage: string | null = null;
   if (status === "checking") {
-    statusMessage = "Проверяем ссылку...";
-  } else if (status === "reachable") {
-    statusMessage = "Ссылка доступна";
-  } else if (status === "unreachable" && result) {
-    const av = result.availabilityStatus;
-    if (av === "private_access" || av === "forbidden") {
-      statusMessage = "Ссылка с ограниченным доступом — откройте доступ для всех, у кого есть ссылка";
-    } else if (av === "timeout") {
-      statusMessage = "Не удалось проверить ссылку — время ожидания истекло";
+    statusMessage = "Проверяем ссылку…";
+  } else if (status === "error") {
+    statusMessage = "Не удалось проверить ссылку. Попробуйте ещё раз.";
+  } else if (result) {
+    const primaryError = result.errors[0];
+    const warnText = result.warnings.length ? result.warnings.join(" ") : null;
+
+    if (!result.isProcessableVideo && primaryError) {
+      statusMessage = primaryError;
+    } else if (!result.isAccessible) {
+      statusMessage =
+        "Ссылка недоступна или с ограниченным доступом — откройте доступ для всех, у кого есть ссылка";
+    } else if (result.isValid) {
+      statusMessage = warnText ?? "Ссылка подходит для видеопрезентации";
+    } else if (primaryError) {
+      statusMessage = primaryError;
     } else {
-      statusMessage = "Ссылка недоступна — проверьте правильность и настройки доступа";
+      statusMessage = "Ссылка не подходит для видеопрезентации";
     }
-  } else if (status === "unreachable") {
-    statusMessage = "Ссылка недоступна — проверьте правильность и настройки доступа";
+
+    if (warnText && result.isValid && statusMessage !== warnText) {
+      statusMessage = `${statusMessage} ${warnText}`;
+    }
   }
 
-  return { status, result, statusMessage };
+  const trimmedForBlock = (url ?? "").trim();
+  const shouldBlockSubmit = Boolean(
+    result &&
+      trimmedForBlock &&
+      trimmedForBlock === lastCompletedUrlRef.current &&
+      !result.isValid &&
+      status !== "checking" &&
+      status !== "idle",
+  );
+
+  return { status, result, statusMessage, shouldBlockSubmit };
 }

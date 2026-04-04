@@ -8,6 +8,7 @@ from invision_api.commission.domain.mapping import application_to_commission_col
 from invision_api.commission.domain.types import AIPlaceholderSummary
 from invision_api.models.application import Application, Document
 from invision_api.models.commission import ApplicationCommissionProjection
+from invision_api.models.video_validation import VideoValidationResultRow
 
 
 def _str_or_none(value: Any) -> str | None:
@@ -270,6 +271,46 @@ def _map_comments(comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+
+
+def _format_duration_label(sec: int | None) -> str | None:
+    if sec is None:
+        return None
+    h, rem = divmod(int(sec), 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def _map_video_presentation_commission(
+    video_url: str | None,
+    video_row: VideoValidationResultRow | None,
+) -> dict[str, Any] | None:
+    if not video_url:
+        return None
+    out: dict[str, Any] = {"url": video_url}
+    if video_row is None:
+        return out
+    status = getattr(video_row, "media_status", None)
+    if status == "failed":
+        return out
+    if status not in ("ready", "partial"):
+        return out
+    out["duration"] = _format_duration_label(getattr(video_row, "duration_sec", None))
+    summary = (getattr(video_row, "summary_text", None) or "").strip()
+    out["summary"] = summary if summary else "Текст не обнаружен"
+    from invision_api.services.video_processing.constants import MIN_FRAMES_FOR_VISIBILITY_UI
+
+    n_frames = int(getattr(video_row, "total_frames_analyzed", 0) or 0)
+    if n_frames >= MIN_FRAMES_FOR_VISIBILITY_UI:
+        out["candidateVisibility"] = (
+            "кандидата видно" if getattr(video_row, "likely_face_visible", False) else "кандидата не видно"
+        )
+    else:
+        out["candidateVisibility"] = None
+    return out
+
 def build_personal_info_view(
     *,
     app: Application,
@@ -282,6 +323,7 @@ def build_personal_info_view(
     documents: list[Document],
     actions: dict[str, Any],
     processing_status: dict[str, Any] | None = None,
+    video_row: VideoValidationResultRow | None = None,
 ) -> dict[str, Any]:
     personal = sections.get("personal") if isinstance(sections.get("personal"), dict) else {}
     contact = sections.get("contact") if isinstance(sections.get("contact"), dict) else {}
@@ -354,7 +396,7 @@ def build_personal_info_view(
                 "whatsapp": _str_or_none(contact.get("whatsapp")),
             },
             "documents": _map_documents(documents=documents, personal=personal, education=education),
-            "videoPresentation": {"url": video_url} if video_url else None,
+            "videoPresentation": _map_video_presentation_commission(video_url, video_row),
         },
         "motivation": {
             "narrative": _str_or_none(motivation.get("narrative")),
@@ -366,6 +408,8 @@ def build_personal_info_view(
         "actions": {
             "canComment": bool(actions.get("canComment")),
             "canMoveForward": bool(actions.get("canMoveForward")),
+            "canApproveAiInterview": bool(actions.get("canApproveAiInterview")),
+            "canGenerateAiInterview": bool(actions.get("canGenerateAiInterview")),
         },
     }
 

@@ -103,7 +103,7 @@ def test_save_education_section_syncs_records(db: Session, factory):
             {"institution_name": "MIT", "is_current": False},
             {"institution_name": "Stanford", "is_current": True},
         ],
-        "presentation_video_url": "https://youtube.com/test",
+        "presentation_video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         "english_proof_kind": "ielts_6",
         "certificate_proof_kind": "ent",
     })
@@ -120,7 +120,12 @@ def test_save_achievements_section(db: Session, factory):
     db.commit()
 
     row = save_section(db, user, SectionKey.achievements_activities, {
-        "activities": [{"category": "Спорт", "title": "Чемпионат"}],
+        "achievements_text": "A" * 260,
+        "role": "Участник",
+        "year": "2025",
+        "links": [],
+        "consent_privacy": True,
+        "consent_parent": True,
     })
     assert row.is_complete is True
 

@@ -7,6 +7,8 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from invision_api.commission.application import audit as commission_audit
+from invision_api.core.config import get_settings
 from invision_api.models.application import Application
 from invision_api.models.enums import ApplicationStage, SectionKey
 from invision_api.repositories import admissions_repository
@@ -84,10 +86,22 @@ def transition_to_interview(
 ) -> Application:
     if app.current_stage != ApplicationStage.application_review.value:
         raise ValueError("application must be in application_review stage")
+    settings = get_settings()
+    allow_bypass = bool(settings.ai_interview_allow_internal_transition_bypass)
+    if allow_bypass:
+        commission_audit.write_event(
+            db,
+            event_type="internal_interview_transition_bypass",
+            entity_type="application",
+            entity_id=app.id,
+            actor_user_id=actor_user_id,
+            metadata={"policy": "AI_INTERVIEW_ALLOW_INTERNAL_TRANSITION_BYPASS"},
+        )
     ctx = TransitionContext(
         application_id=app.id,
         transition=TransitionName.review_complete,
         actor_user_id=actor_user_id,
         actor_type="committee",
+        allow_review_complete_without_approved_ai_interview=allow_bypass,
     )
     return apply_transition(db, app, ctx)

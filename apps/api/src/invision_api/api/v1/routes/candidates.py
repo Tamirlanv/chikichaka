@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any
 from uuid import UUID
 
@@ -198,6 +199,153 @@ def get_my_stage(
     from invision_api.services.stages import application_stage_service
 
     return application_stage_service.get_stage_snapshot(db, app)
+
+
+class AiInterviewAnswersBody(BaseModel):
+    answers: list[dict[str, Any]]
+
+
+@router.get("/me/application/ai-interview/questions")
+def get_ai_interview_questions(
+    user: User = Depends(require_roles(RoleName.candidate)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from invision_api.services.ai_interview import service as ai_interview_service
+
+    profile = get_candidate_profile_by_user(db, user.id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    app = get_application_for_candidate(db, profile.id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Заявление не найдено")
+    questions = ai_interview_service.get_approved_questions_for_candidate(db, app.id)
+    return {"questions": questions}
+
+
+@router.get("/me/application/ai-interview/answers")
+def get_ai_interview_answers(
+    user: User = Depends(require_roles(RoleName.candidate)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from invision_api.services.ai_interview import service as ai_interview_service
+
+    profile = get_candidate_profile_by_user(db, user.id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    app = get_application_for_candidate(db, profile.id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Заявление не найдено")
+    answers = ai_interview_service.list_candidate_answers_for_application(db, app.id)
+    return {"answers": answers}
+
+
+@router.post("/me/application/ai-interview/answers")
+def post_ai_interview_answers(
+    body: AiInterviewAnswersBody,
+    user: User = Depends(require_roles(RoleName.candidate)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from invision_api.services.ai_interview import service as ai_interview_service
+
+    profile = get_candidate_profile_by_user(db, user.id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    app = get_application_for_candidate(db, profile.id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Заявление не найдено")
+    out = ai_interview_service.save_candidate_answers_stub(db, app.id, answers=body.answers)
+    db.commit()
+    return out
+
+
+@router.post("/me/application/ai-interview/complete")
+def post_ai_interview_complete(
+    user: User = Depends(require_roles(RoleName.candidate)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from invision_api.services.ai_interview import service as ai_interview_service
+
+    profile = get_candidate_profile_by_user(db, user.id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    app = get_application_for_candidate(db, profile.id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Заявление не найдено")
+    out = ai_interview_service.complete_candidate_ai_interview(db, app.id)
+    db.commit()
+    return out
+
+
+@router.get("/me/application/ai-interview/status")
+def get_ai_interview_status(
+    user: User = Depends(require_roles(RoleName.candidate)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from invision_api.services.ai_interview import service as ai_interview_service
+
+    profile = get_candidate_profile_by_user(db, user.id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    app = get_application_for_candidate(db, profile.id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Заявление не найдено")
+    return ai_interview_service.get_candidate_ai_interview_status(db, app.id)
+
+
+@router.get("/me/application/interview-preferences/available-days")
+def get_interview_preference_available_days(
+    user: User = Depends(require_roles(RoleName.candidate)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from invision_api.services.interview_preferences import service as interview_preferences_service
+
+    profile = get_candidate_profile_by_user(db, user.id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    app = get_application_for_candidate(db, profile.id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Заявление не найдено")
+    return interview_preferences_service.list_available_days(db, app.id)
+
+
+@router.get("/me/application/interview-preferences/available-slots")
+def get_interview_preference_available_slots(
+    slot_date: date,
+    user: User = Depends(require_roles(RoleName.candidate)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from invision_api.services.interview_preferences import service as interview_preferences_service
+
+    profile = get_candidate_profile_by_user(db, user.id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    app = get_application_for_candidate(db, profile.id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Заявление не найдено")
+    return interview_preferences_service.list_available_slots_for_date(db, app.id, slot_date)
+
+
+class InterviewPreferencesSubmitBody(BaseModel):
+    slots: list[dict[str, Any]]
+
+
+@router.post("/me/application/interview-preferences/submit")
+def post_interview_preferences_submit(
+    body: InterviewPreferencesSubmitBody,
+    user: User = Depends(require_roles(RoleName.candidate)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from invision_api.services.interview_preferences import service as interview_preferences_service
+
+    profile = get_candidate_profile_by_user(db, user.id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    app = get_application_for_candidate(db, profile.id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Заявление не найдено")
+    out = interview_preferences_service.submit_interview_preferences(db, app.id, slots=body.slots)
+    db.commit()
+    return out
 
 
 @router.post("/me/application/submit")

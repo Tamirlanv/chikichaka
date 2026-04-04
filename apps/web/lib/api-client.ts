@@ -137,6 +137,66 @@ export async function apiFetch<T>(
   return data as T;
 }
 
+/** GET binary (e.g. commission document); same auth and 401 refresh as apiFetch. */
+export async function apiFetchBlob(path: string): Promise<Blob> {
+  const base = apiBaseUrl();
+  const rel = path.startsWith("/api/v1") ? path : `/api/v1${path.startsWith("/") ? path : `/${path}`}`;
+  const url = path.startsWith("http") ? path : `${base}${rel}`;
+  const scope = getAuthScopeFromApiPath(rel);
+  const h = new Headers();
+  const isAuthLoginLike =
+    rel.includes("/api/v1/auth/login") ||
+    rel.includes("/api/v1/auth/logout") ||
+    rel.includes("/api/v1/auth/register");
+  if (!isAuthLoginLike) {
+    const access = getAccessToken(scope);
+    if (access) {
+      h.set("Authorization", `Bearer ${access}`);
+    }
+  }
+  let res = await fetch(url, {
+    method: "GET",
+    headers: h,
+    credentials: "include",
+    cache: "no-store",
+  });
+
+  const canRefresh =
+    typeof window !== "undefined" &&
+    !rel.includes("/api/v1/auth/refresh") &&
+    !rel.includes("/api/v1/auth/login") &&
+    !rel.includes("/api/v1/auth/logout");
+
+  if (res.status === 401 && canRefresh) {
+    const refreshed = await refreshSession(scope);
+    if (refreshed) {
+      const retryHeaders = new Headers(h);
+      const nextAccess = getAccessToken(scope);
+      if (nextAccess) {
+        retryHeaders.set("Authorization", `Bearer ${nextAccess}`);
+      }
+      res = await fetch(url, {
+        method: "GET",
+        headers: retryHeaders,
+        credentials: "include",
+        cache: "no-store",
+      });
+    }
+  }
+
+  if (!res.ok) {
+    const data = await parseJsonSafe(res);
+    const msg =
+      typeof data === "string"
+        ? data.slice(0, 500)
+        : data !== null && typeof data === "object"
+          ? formatApiErrorBody(data)
+          : `Request failed (${res.status})`;
+    throw new ApiError(msg, res.status, data);
+  }
+  return res.blob();
+}
+
 /** Multipart POST /api/v1/documents/upload (credentials, без Content-Type — boundary задаёт браузер). */
 export async function uploadDocumentForm<T extends Record<string, unknown>>(fd: FormData): Promise<T> {
   const base = apiBaseUrl();

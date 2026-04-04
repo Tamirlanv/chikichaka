@@ -9,7 +9,7 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from invision_api.commission.application import audit as commission_audit
 from invision_api.commission.application.ai_pipeline_service import CommissionAIPipelineResult, run_commission_ai_pipeline
@@ -27,8 +27,9 @@ from invision_api.commission.domain.types import (
     RubricScore,
     StageStatus,
 )
-from invision_api.models.application import AIReviewMetadata, Application
+from invision_api.models.application import AIReviewMetadata, Application, InterviewSession
 from invision_api.models.commission import ApplicationComment, ApplicationCommissionProjection, ExportJob
+from invision_api.models.enums import ApplicationStage
 from invision_api.repositories import admissions_repository, commission_repository
 from invision_api.services.stage_transition_policy import TransitionContext, TransitionName, apply_transition
 from invision_api.services.stages import decision_service
@@ -41,6 +42,82 @@ def _load_application(db: Session, application_id: UUID) -> Application:
     return app
 
 
+def _pick_display_interview_session(sessions: list[InterviewSession]) -> InterviewSession | None:
+    if not sessions:
+        return None
+    scheduled = [s for s in sessions if s.scheduled_at]
+    if scheduled:
+        return max(scheduled, key=lambda s: s.scheduled_at)
+    return max(sessions, key=lambda s: s.created_at)
+
+
+def _education_track_from_app(app: Application) -> str | None:
+    for ss in app.section_states or []:
+        if ss.section_key == "education" and isinstance(ss.payload, dict):
+            entries = ss.payload.get("entries") or []
+            if entries and isinstance(entries[0], dict):
+                e0 = entries[0]
+                fos = e0.get("field_of_study") or e0.get("degree_or_program")
+                if isinstance(fos, str) and fos.strip():
+                    return fos.strip()
+    return None
+
+
+def _enrich_interview_kanban_cards(db: Session, cards: list[KanbanCard]) -> list[KanbanCard]:
+    if not cards:
+        return cards
+    app_ids = [c.application_id for c in cards]
+    rows = db.scalars(select(InterviewSession).where(InterviewSession.application_id.in_(app_ids))).all()
+    by_app: dict[UUID, list[InterviewSession]] = {}
+    for r in rows:
+        by_app.setdefault(r.application_id, []).append(r)
+
+    apps = db.scalars(
+        select(Application).options(selectinload(Application.section_states)).where(Application.id.in_(app_ids))
+    ).unique().all()
+    app_by_id = {a.id: a for a in apps}
+
+    out: list[KanbanCard] = []
+    for c in cards:
+        sess_list = by_app.get(c.application_id, [])
+        pick = _pick_display_interview_session(sess_list)
+        sched_iso = pick.scheduled_at.isoformat() if pick and pick.scheduled_at else None
+        sched_by = pick.scheduled_by_user_id if pick else None
+        app = app_by_id.get(c.application_id)
+        track = _education_track_from_app(app) if app else None
+        out.append(
+            KanbanCard(
+                application_id=c.application_id,
+                candidate_full_name=c.candidate_full_name,
+                program=c.program,
+                age=c.age,
+                city=c.city,
+                phone=c.phone,
+                submitted_at_iso=c.submitted_at_iso,
+                updated_at_iso=c.updated_at_iso,
+                stage_column=c.stage_column,
+                stage_status=c.stage_status,
+                attention_flag_manual=c.attention_flag_manual,
+                final_decision=c.final_decision,
+                visual_status=c.visual_status,
+                visual_reason=c.visual_reason,
+                comment_count=c.comment_count,
+                has_ai_summary=c.has_ai_summary,
+                ai_recommendation=c.ai_recommendation,
+                interview_scheduled_at_iso=sched_iso,
+                interview_scheduled_by_user_id=sched_by,
+                education_track=track,
+            )
+        )
+    return out
+
+
+def _interview_in_scope_mine(card: KanbanCard, user_id: UUID) -> bool:
+    if not card.interview_scheduled_at_iso:
+        return False
+    return card.interview_scheduled_by_user_id == user_id
+
+
 def list_applications(
     db: Session,
     *,
@@ -51,6 +128,9 @@ def list_applications(
     search: str | None,
     limit: int,
     offset: int,
+    scope: str | None = None,
+    current_user_id: UUID | None = None,
+    interview_kanban_only: bool = False,
 ) -> list[KanbanCard]:
     rows = commission_repository.list_projections(
         db,
@@ -59,6 +139,7 @@ def list_applications(
         attention_only=attention_only,
         program=program,
         search=search,
+        interview_kanban_only=interview_kanban_only,
         limit=limit,
         offset=offset,
     )
@@ -75,6 +156,7 @@ def list_applications(
             attention_only=attention_only,
             program=program,
             search=search,
+            interview_kanban_only=interview_kanban_only,
             limit=limit,
             offset=offset,
         )
@@ -107,6 +189,10 @@ def list_applications(
                 else None,
             )
         )
+    if stage == ApplicationStage.interview.value:
+        out = _enrich_interview_kanban_cards(db, out)
+        if scope == "mine" and current_user_id is not None:
+            out = [c for c in out if _interview_in_scope_mine(c, current_user_id)]
     return out
 
 
@@ -163,7 +249,7 @@ def get_application_details(db: Session, application_id: UUID) -> dict:
     available_actions: list[str] = []
     if current_stage != "result":
         available_actions.append("set_stage_status")
-    if app.current_stage in ("initial_screening", "application_review", "interview", "committee_review"):
+    if app.current_stage in ("initial_screening", "interview", "committee_review"):
         available_actions.append("advance_stage")
     if app.current_stage in ("committee_review", "decision"):
         available_actions.append("set_final_decision")
@@ -259,12 +345,15 @@ def get_application_details(db: Session, application_id: UUID) -> dict:
 
 def advance_stage(db: Session, application_id: UUID, actor_user_id: UUID | None, reason_comment: str | None) -> dict:
     app = _load_application(db, application_id)
+    if app.current_stage == "application_review":
+        raise HTTPException(
+            status_code=409,
+            detail="Переход с этапа оценки заявки на собеседование выполняется только через одобрение AI-собеседования.",
+        )
     before = {"current_stage": app.current_stage, "state": app.state}
     transition: TransitionName | None = None
     if app.current_stage == "initial_screening":
         transition = TransitionName.screening_passed
-    elif app.current_stage == "application_review":
-        transition = TransitionName.review_complete
     elif app.current_stage == "interview":
         transition = TransitionName.interview_complete
     elif app.current_stage == "committee_review":
@@ -478,20 +567,6 @@ def set_final_decision(
         internal_note=reason_comment,
         next_steps=None,
     )
-    # Notification event placeholder (queue record in existing notifications table).
-    if app.candidate_profile and app.candidate_profile.user_id:
-        from invision_api.models.application import Notification
-
-        db.add(
-            Notification(
-                user_id=app.candidate_profile.user_id,
-                channel="email",
-                template_key=f"final_decision:{final_decision.value}",
-                payload={"application_id": str(app.id), "decision": final_decision.value},
-                status="pending",
-                correlation_id=str(decision.id),
-            )
-        )
     rebuild_projection(db, application_id)
     commission_audit.write_event(
         db,

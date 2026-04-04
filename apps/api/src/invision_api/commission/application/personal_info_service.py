@@ -13,7 +13,17 @@ from invision_api.commission.application.personal_info_validators import (
 )
 from invision_api.models.enums import DataCheckUnitType
 from invision_api.models.user import User
-from invision_api.repositories import commission_repository, data_check_repository, document_repository, internal_test_repository
+from invision_api.core.config import get_settings
+from invision_api.repositories import (
+    ai_interview_repository,
+    commission_repository,
+    data_check_repository,
+    document_repository,
+    internal_test_repository,
+    video_validation_repository,
+)
+from invision_api.services.ai_interview.data_readiness import is_data_processing_ready
+from invision_api.services.ai_interview.service import display_question_text
 from invision_api.services.application_service import collect_referenced_document_ids
 from invision_api.services.data_check.status_service import TERMINAL_UNIT_STATUSES, compute_run_status
 from invision_api.services.personality_profile_service import build_personality_profile_snapshot
@@ -69,8 +79,25 @@ def get_commission_application_personal_info(db: Session, *, application_id: UUI
 
     processing_status = _build_processing_status(db, application_id)
 
+    video_row = video_validation_repository.get_latest_for_application(db, application_id)
+
     comments = commission_repository.list_comments_with_author(db, application_id=application_id, limit=50)
-    actions = resolve_commission_actions(db, actor, can_advance_stage=app.current_stage == "application_review")
+
+    qs = ai_interview_repository.get_question_set_for_application(db, application_id)
+    n_valid = 0
+    if qs and qs.questions:
+        n_valid = sum(1 for q in qs.questions if display_question_text(q))
+    on_review = app.current_stage == "application_review"
+    can_advance_stage = app.current_stage in ("interview", "committee_review")
+    settings = get_settings()
+    data_ok_for_generate = not settings.ai_interview_require_data_ready or is_data_processing_ready(db, application_id)
+    actions = resolve_commission_actions(
+        db,
+        actor,
+        can_advance_stage=can_advance_stage,
+        can_approve_ai_interview=bool(on_review and qs and qs.status == "draft" and 3 <= n_valid <= 5),
+        can_generate_ai_interview=bool(on_review and data_ok_for_generate),
+    )
 
     return build_personal_info_view(
         app=app,
@@ -83,6 +110,7 @@ def get_commission_application_personal_info(db: Session, *, application_id: UUI
         documents=documents,
         actions=actions,
         processing_status=processing_status,
+        video_row=video_row,
     )
 
 

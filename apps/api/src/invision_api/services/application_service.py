@@ -28,6 +28,7 @@ from invision_api.models.enums import (
 )
 from invision_api.models.user import User
 from invision_api.repositories import document_repository, internal_test_repository
+from invision_api.services.link_validation.service import validate_education_presentation_video_url
 from invision_api.repositories.application_repository import (
     create_initial_application,
     get_application_for_candidate,
@@ -317,6 +318,10 @@ def save_section(
         e = validated if isinstance(validated, section_payloads.EducationSectionPayload) else None
         if not e:
             raise HTTPException(status_code=400, detail="Некорректные данные раздела «Образование»")
+        try:
+            validate_education_presentation_video_url(e.presentation_video_url)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
         sync_education_records(db, app, e)
         out_payload = e.model_dump(mode="json")
     elif section_key == SectionKey.achievements_activities:
@@ -654,6 +659,14 @@ def submit_application_with_outcome(db: Session, user: User) -> dict[str, Any]:
 
     db.commit()
     db.refresh(app)
+
+    from invision_api.services import candidate_stage_email_service
+
+    candidate_stage_email_service.send_stage_transition_notification(
+        app.id,
+        ApplicationStage.application.value,
+        app.current_stage,
+    )
 
     return {
         "application": app,

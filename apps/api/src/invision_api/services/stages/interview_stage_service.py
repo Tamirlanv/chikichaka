@@ -22,6 +22,7 @@ def schedule_session(
     scheduled_at: datetime | None,
     interview_mode: str | None,
     location_or_link: str | None,
+    scheduled_by_user_id: UUID | None = None,
 ) -> Any:
     return admissions_repository.create_interview_session(
         db,
@@ -29,6 +30,7 @@ def schedule_session(
         session_index=session_index,
         interview_status="scheduled",
         scheduled_at=scheduled_at,
+        scheduled_by_user_id=scheduled_by_user_id,
         interview_mode=interview_mode,
         location_or_link=location_or_link,
     )

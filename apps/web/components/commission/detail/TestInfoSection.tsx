@@ -86,25 +86,11 @@ export function TestInfoSection({ data, onNext }: Props) {
         </div>
       </div>
 
-      {/* Далее button */}
+      {/* Продолжить */}
       {onNext ? (
         <div style={{ display: "flex", justifyContent: "center", marginTop: 16 }}>
-          <button
-            type="button"
-            onClick={onNext}
-            style={{
-              padding: "12px 24px",
-              borderRadius: 8,
-              border: "none",
-              background: "#98da00",
-              color: "#fff",
-              fontSize: 14,
-              fontWeight: 350,
-              letterSpacing: "-0.42px",
-              cursor: "pointer",
-            }}
-          >
-            Далее
+          <button type="button" className="btn" onClick={onNext}>
+            Продолжить
           </button>
         </div>
       ) : null}

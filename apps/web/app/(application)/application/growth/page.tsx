@@ -318,7 +318,7 @@ export default function GrowthPage() {
           Сохранить черновик
         </button>
         <button type="submit" className="btn" disabled={isSubmitting}>
-          {isSubmitting ? "Сохранение…" : "Далее"}
+          {isSubmitting ? "Сохранение…" : "Продолжить"}
         </button>
       </div>
     </form>

@@ -160,18 +160,14 @@ export function ApplicationSidebar({ statusData, statusError: externalStatusErro
                   <StepDot active={step.reached} />
                   <p className={step.reached ? styles.labelActive : styles.labelInactive}>{step.label}</p>
                 </div>
-                {/* Dotted connector after current active stage */}
+                {/* Вертикаль из точек между текущим этапом и следующим */}
                 {idx === activeStepIndex && idx < stageItems.length - 1 ? (
                   <div className={styles.stageConnector} aria-hidden>
-                    <svg width="4" height="20" viewBox="0 0 4 20" fill="none">
-                      <path
-                        d="M2 2V18"
-                        stroke="#98DA00"
-                        strokeWidth="4"
-                        strokeLinecap="round"
-                        strokeDasharray="0.1 8"
-                      />
-                    </svg>
+                    <div className={styles.connectorDots}>
+                      <span className={styles.connectorDot} />
+                      <span className={styles.connectorDot} />
+                      <span className={styles.connectorDot} />
+                    </div>
                   </div>
                 ) : null}
               </div>

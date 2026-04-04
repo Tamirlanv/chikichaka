@@ -1,31 +1,95 @@
 import { pgPool } from "../db/pg.js";
 import { saveCertificateValidationResult } from "../repositories/certificateValidationRepository.js";
 import { classifyDocumentType } from "./classification/documentClassifier.js";
+import { mapDeclarationToDocumentType, mergeDocumentType } from "./classification/mergeDocumentType.js";
 import { extractFields } from "./extraction/fieldExtractor.js";
+import { validatePlausibleScore } from "./extraction/plausibleScore.js";
 import { preprocessImage } from "./image/preprocessImage.js";
 import { TesseractOcrProvider } from "./ocr/tesseractOcrProvider.js";
 import { evaluateAuthenticity } from "./rules/authenticityHeuristics.js";
-import { evaluateThresholds } from "./rules/thresholdEvaluator.js";
+import { computePassedThreshold, evaluateThresholds } from "./rules/thresholdEvaluator.js";
 import { buildOptionalSummary } from "./summary/llmSummaryService.js";
 import { matchTemplate } from "./template/templateMatcher.js";
-import { CertificateValidationResult } from "./types.js";
+import type { CertificateValidationResult, DocumentType } from "./types.js";
+import { writeTempFileFromBase64 } from "../utils/tempImageFromBase64.js";
 
-export async function validateCertificateImage(input: {
-  imagePath: string;
+export type ValidateCertificateInput = {
+  imagePath?: string;
+  imageBase64?: string;
+  mimeType?: string;
   applicationId?: string | null;
   includeSummary?: boolean;
-}): Promise<CertificateValidationResult> {
+  /** When set (e.g. PDF text from API), skips preprocess + OCR */
+  plainText?: string | null;
+  expectedDocumentType?: DocumentType | null;
+  englishProofKind?: string | null;
+  certificateProofKind?: string | null;
+  /** Which education attachment this is — used with proof kinds when expectedDocumentType is omitted */
+  documentRole?: "english" | "certificate" | "additional";
+  /** When true, do not INSERT into certificate_validation_results (caller persists, e.g. API). */
+  skipPersistence?: boolean;
+};
+
+function emptyFailure(
+  errors: string[],
+  processingStatus: CertificateValidationResult["processingStatus"] = "processing_failed"
+): CertificateValidationResult {
+  return {
+    documentType: "unknown",
+    processingStatus,
+    extractedFields: { rawDetectedText: null },
+    scoreLabel: null,
+    passedThreshold: null,
+    thresholdType: null,
+    thresholdChecks: {},
+    authenticity: {
+      status: "manual_review_required",
+      templateMatchScore: null,
+      ocrConfidence: null,
+      fraudSignals: ["validation_input_invalid"]
+    },
+    warnings: [],
+    errors,
+    explainability: ["Missing image or text input"],
+    confidence: 0
+  };
+}
+
+export async function validateCertificateImage(
+  input: ValidateCertificateInput
+): Promise<CertificateValidationResult> {
   const warnings: string[] = [];
   const errors: string[] = [];
+  let cleanup: (() => Promise<void>) | undefined;
 
   try {
-    const preprocessed = await preprocessImage(input.imagePath);
-    const ocr = await new TesseractOcrProvider().extractText(preprocessed);
-    if (!ocr.text) {
+    let ocr: { text: string; confidence: number | null };
+
+    if (input.plainText?.trim()) {
+      ocr = { text: input.plainText.trim(), confidence: 1.0 };
+    } else {
+      let path = input.imagePath;
+      if (input.imageBase64) {
+        const t = await writeTempFileFromBase64(input.imageBase64, input.mimeType ?? "image/jpeg");
+        path = t.path;
+        cleanup = t.cleanup;
+      }
+      if (!path) {
+        return emptyFailure(["Provide plainText, imagePath, or imageBase64"]);
+      }
+
+      const preprocessed = await preprocessImage(path);
+      ocr = await new TesseractOcrProvider().extractText(preprocessed);
+    }
+
+    if (!ocr.text?.trim()) {
       return {
         documentType: "unknown",
         processingStatus: "ocr_failed",
         extractedFields: { rawDetectedText: null },
+        scoreLabel: null,
+        passedThreshold: null,
+        thresholdType: null,
         thresholdChecks: {},
         authenticity: {
           status: "insufficient_quality",
@@ -40,40 +104,122 @@ export async function validateCertificateImage(input: {
       };
     }
 
-    const documentType = classifyDocumentType(ocr.text);
+    const ocrDocumentType = classifyDocumentType(ocr.text);
+
+    const fromDeclaration = mapDeclarationToDocumentType({
+      englishProofKind: input.englishProofKind,
+      certificateProofKind: input.certificateProofKind,
+      documentRole: input.documentRole ?? "additional"
+    });
+    const expected: DocumentType | null =
+      input.expectedDocumentType && input.expectedDocumentType !== "unknown"
+        ? input.expectedDocumentType
+        : fromDeclaration;
+
+    const merged = mergeDocumentType(ocrDocumentType, expected);
+    warnings.push(...merged.warnings);
+    const documentType = merged.resolved;
+
+    if (merged.mismatch) {
+      warnings.push("Declaration vs OCR mismatch: threshold not applied automatically.");
+    }
+
     const template = matchTemplate(ocr.text, documentType);
     const extracted = extractFields(ocr.text, documentType);
-    const thresholds = evaluateThresholds(documentType, extracted.totalScore ?? null);
+
+    let finalScore: number | null = extracted.totalScore ?? null;
+    let scorePlausible: boolean | null = null;
+    let scoreRejectionReason: string | null = null;
+    if (finalScore != null && documentType !== "unknown") {
+      const plaus = validatePlausibleScore(documentType, finalScore);
+      if (!plaus.ok) {
+        scoreRejectionReason = plaus.reason ?? "unknown";
+        warnings.push(`Extracted score rejected as implausible (${plaus.reason}).`);
+        finalScore = null;
+        scorePlausible = false;
+      } else {
+        scorePlausible = true;
+      }
+    }
+
+    const thresholds = evaluateThresholds(documentType, finalScore, {
+      declarationMismatch: merged.mismatch
+    });
+    const passedMeta = computePassedThreshold(documentType, finalScore, merged.mismatch);
+
+    const fraudExtra: string[] = [];
+    if (merged.mismatch) fraudExtra.push("declaration_ocr_mismatch");
+    if (scorePlausible === false) fraudExtra.push("implausible_score_rejected");
+
     const auth = evaluateAuthenticity({
       templateScore: template.score,
       ocrConfidence: ocr.confidence,
-      hasScore: extracted.totalScore !== null && extracted.totalScore !== undefined,
-      missingAnchors: template.missingAnchors
+      hasScore: finalScore !== null && finalScore !== undefined,
+      missingAnchors: template.missingAnchors,
+      extraFraudSignals: fraudExtra
     });
 
+    const usedOcr = !input.plainText?.trim();
+    const ocrLow = usedOcr && ocr.confidence !== null && ocr.confidence < 0.35;
+    if (ocrLow) {
+      warnings.push("Low OCR confidence; verify document manually.");
+    }
+
+    let processingStatus: CertificateValidationResult["processingStatus"] =
+      documentType === "unknown" ? "unsupported" : "processed";
+    if (documentType !== "unknown" && ocrLow) {
+      processingStatus = "low_quality";
+    }
+
+    const plausLine =
+      scorePlausible === true
+        ? "Plausibility: passed"
+        : scorePlausible === false
+          ? `Plausibility: rejected (${scoreRejectionReason ?? "?"})`
+          : "Plausibility: no numeric score to validate";
+
     const explainability = [
-      `Document type classified as ${documentType}`,
+      `OCR classified as ${ocrDocumentType}, resolved type: ${documentType}`,
       `Template score: ${template.score}`,
-      `Detected score: ${extracted.totalScore ?? "none"}`
+      `Extraction method: ${extracted.extractionMethod ?? "n/a"}`,
+      `Detected score (after plausibility): ${finalScore ?? "none"}`,
+      plausLine
     ];
     if (template.missingAnchors.length) warnings.push(`Missing anchors: ${template.missingAnchors.join(", ")}`);
-    if (documentType === "unknown") warnings.push("Document type is unknown");
+    if (documentType === "unknown") warnings.push("Document type is unknown after merge");
 
     const confidence = Number(
       Math.max(
         0,
         Math.min(
           1,
-          0.25 + template.score * 0.35 + (ocr.confidence ?? 0) * 0.2 + (extracted.totalScore != null ? 0.1 : 0) - errors.length * 0.05
+          0.25 +
+            template.score * 0.35 +
+            (ocr.confidence ?? 0) * 0.2 +
+            (finalScore != null ? 0.1 : 0) -
+            errors.length * 0.05 -
+            (merged.mismatch ? 0.15 : 0)
         )
       ).toFixed(3)
     );
 
     const result: CertificateValidationResult = {
       documentType,
-      processingStatus: documentType === "unknown" ? "unsupported" : "processed",
-      extractedFields: { ...extracted, rawDetectedText: ocr.text.slice(0, 3000) },
+      processingStatus,
+      extractedFields: {
+        ...extracted,
+        totalScore: finalScore,
+        rawDetectedText: ocr.text.slice(0, 3000),
+        ocrDocumentType,
+        declarationMismatch: merged.mismatch,
+        extractionMethod: extracted.extractionMethod ?? null,
+        scorePlausible,
+        scoreRejectionReason
+      },
       thresholdChecks: thresholds,
+      scoreLabel: finalScore != null ? extracted.scoreLabel ?? null : null,
+      passedThreshold: passedMeta.passed,
+      thresholdType: passedMeta.thresholdType,
       authenticity: {
         status: auth.status,
         templateMatchScore: template.score,
@@ -87,13 +233,18 @@ export async function validateCertificateImage(input: {
     };
 
     if (input.includeSummary) result.summaryText = await buildOptionalSummary(result);
-    await saveCertificateValidationResult(pgPool, { applicationId: input.applicationId, result });
+    if (!input.skipPersistence) {
+      await saveCertificateValidationResult(pgPool, { applicationId: input.applicationId, result });
+    }
     return result;
   } catch (error) {
     return {
       documentType: "unknown",
       processingStatus: "processing_failed",
       extractedFields: { rawDetectedText: null },
+      scoreLabel: null,
+      passedThreshold: null,
+      thresholdType: null,
       thresholdChecks: {},
       authenticity: {
         status: "manual_review_required",
@@ -106,5 +257,7 @@ export async function validateCertificateImage(input: {
       explainability: ["Pipeline failed before final assembly"],
       confidence: 0
     };
+  } finally {
+    if (cleanup) await cleanup().catch(() => undefined);
   }
 }

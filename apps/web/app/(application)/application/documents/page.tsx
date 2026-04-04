@@ -126,7 +126,7 @@ export default function DocumentsPage() {
           {isSubmitting ? "Сохранение…" : "Сохранить"}
         </button>
         <Link className="btn" href="/application/social-status">
-          Далее
+          Продолжить
         </Link>
       </div>
     </form>

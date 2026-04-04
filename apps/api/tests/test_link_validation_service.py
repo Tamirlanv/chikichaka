@@ -15,6 +15,18 @@ class _StubProbeClient:
             response_time_ms=88,
         )
 
+    def head(self, url: str) -> HttpProbeResult:
+        _ = url
+        return HttpProbeResult(
+            final_url=url,
+            status_code=200,
+            content_type="video/mp4",
+            content_length=1024,
+            redirected=False,
+            redirect_count=0,
+            response_time_ms=12,
+        )
+
 
 class _StubSession:
     def __init__(self) -> None:

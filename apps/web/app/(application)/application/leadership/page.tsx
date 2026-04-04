@@ -154,7 +154,7 @@ export default function LeadershipPage() {
           {isSubmitting ? "Сохранение…" : "Сохранить"}
         </button>
         <Link className="btn" href="/application/motivation">
-          Далее
+          Продолжить
         </Link>
       </div>
     </form>

@@ -1,16 +1,19 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -252,6 +255,29 @@ class ApplicationCommissionProjection(Base, TimestampMixin):
     has_ai_summary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     ai_recommendation: Mapped[str | None] = mapped_column(String(32), nullable=True)
     revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    ai_interview_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    interview_preferences_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class InterviewSlotBooking(Base):
+    """Candidate preference for commission interview time; unique (slot_date, time_range_code) globally."""
+
+    __tablename__ = "interview_slot_bookings"
+    __table_args__ = (
+        UniqueConstraint("slot_date", "time_range_code", name="uq_interview_slot_slot_time"),
+        Index("ix_interview_slot_bookings_app", "application_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"), nullable=False
+    )
+    slot_date: Mapped[date] = mapped_column(Date, nullable=False)
+    time_range_code: Mapped[str] = mapped_column(String(16), nullable=False)
+    sort_order: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class ExportJob(Base, UUIDPrimaryKeyMixin, TimestampMixin):

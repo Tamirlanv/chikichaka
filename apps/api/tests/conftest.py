@@ -184,7 +184,7 @@ class Factory:
             },
             SectionKey.education.value: {
                 "entries": [{"institution_name": "Школа №1", "is_current": False}],
-                "presentation_video_url": "https://youtube.com/watch?v=test",
+                "presentation_video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
                 "english_proof_kind": "ielts_6",
                 "certificate_proof_kind": "ent",
             },

@@ -10,4 +10,14 @@ describe("classifyDocumentType", () => {
   it("detects TOEFL", () => {
     expect(classifyDocumentType("ETS TOEFL iBT total score 98")).toBe("toefl");
   });
+
+  it("detects ENT context", () => {
+    expect(classifyDocumentType("Единое национальное тестирование итоговый балл 100")).toBe("ent");
+  });
+
+  it("detects NIS", () => {
+    expect(
+      classifyDocumentType("Nazarbayev Intellectual Schools certificate Grade 12 итоговый балл 88")
+    ).toBe("nis_12");
+  });
 });

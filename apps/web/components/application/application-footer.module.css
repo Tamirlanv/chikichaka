@@ -1,5 +1,5 @@
 .footer {
-  margin-top: auto;
+  margin-top: 36px;
   width: 100%;
   padding: 32px var(--application-page-padding-x, 80px) 40px;
   border-top: 1px solid #e1e1e1;

@@ -1,23 +1,14 @@
 .root {
-  padding: 60px;
+  padding: 32px 60px 60px 60px;
   min-height: 100vh;
   background: #fff;
 }
 
 .header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
   margin-bottom: 40px;
-}
-
-.pageTitle {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 550;
-  color: #262626;
-  letter-spacing: -0.6px;
-  line-height: 20px;
 }
 
 .layout {
@@ -67,25 +58,25 @@
   line-height: 20px;
 }
 
-/* Candidate card — program / phone / tg lines */
+/* Candidate card — program / phone / tg (серый текст для чтения) */
 .candidateMeta {
   margin: 0;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 350;
   color: #626262;
-  letter-spacing: -0.48px;
-  line-height: 16px;
+  letter-spacing: -0.42px;
+  line-height: 1.2;
   white-space: nowrap;
 }
 
 /* Candidate card — date (top-right) */
 .candidateDate {
   margin: 0;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 350;
   color: #626262;
-  letter-spacing: -0.48px;
-  line-height: 16px;
+  letter-spacing: -0.42px;
+  line-height: 1.2;
   white-space: nowrap;
 }
 
@@ -109,14 +100,14 @@
   line-height: 16px;
 }
 
-/* AI card — row value / body text */
+/* AI card — серый текст для чтения (не заголовки) */
 .aiText {
   margin: 0;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 350;
   color: #626262;
-  letter-spacing: -0.48px;
-  line-height: 16px;
+  letter-spacing: -0.42px;
+  line-height: 1.2;
 }
 
 .aiRow {
@@ -130,4 +121,44 @@
   display: grid;
   gap: 24px;
   min-width: 0;
+}
+
+/*
+ * Sidebar dynamic summary: clip-path reveal (avoids opacity-on-text jitter / subpixel smoothing).
+ * Main column: commission-tab-transitions.module.css (fade + translateY).
+ */
+.sidebarPanelEnter {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  animation: commissionSidebarRevealIn 0.45s ease-out both;
+}
+
+@keyframes commissionSidebarRevealIn {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebarPanelEnter {
+    animation: none;
+    clip-path: none;
+  }
+}
+
+.backToBoard {
+  font-size: 14px;
+  font-weight: 350;
+  color: #626262;
+  text-decoration: none;
+  letter-spacing: -0.42px;
+  line-height: 14px;
+}
+
+.backToBoard:hover {
+  color: #262626;
 }

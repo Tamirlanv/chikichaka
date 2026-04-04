@@ -22,6 +22,16 @@ export function isDataVerificationStage(status: CandidateApplicationStatus | nul
   return status?.current_stage === "initial_screening";
 }
 
+/** Заявка на этапе «Оценка заявки» у комиссии (после проверки данных). */
+export function isApplicationReviewStage(status: CandidateApplicationStatus | null): boolean {
+  return status?.current_stage === "application_review";
+}
+
+/** Этап устного / уточняющего собеседования с комиссией. */
+export function isInterviewStage(status: CandidateApplicationStatus | null): boolean {
+  return status?.current_stage === "interview";
+}
+
 export function getLatestCandidateVisibleNote(status: CandidateApplicationStatus | null): string | null {
   if (!status?.stage_history?.length) return null;
   for (let i = status.stage_history.length - 1; i >= 0; i -= 1) {

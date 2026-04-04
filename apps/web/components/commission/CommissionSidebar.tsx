@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { clearAuthTokens } from "@/lib/auth-session";
 import styles from "./CommissionSidebar.module.css";
@@ -18,22 +18,31 @@ type NavItem = {
   label: string;
   icon: string;
   href: string;
-  active?: boolean;
 };
 
 const PROGRAM_ITEMS: NavItem[] = [
-  { key: "main", label: "Главная", icon: "/assets/icons/fluent_home-48-filled.svg", href: "/commission", active: true },
+  { key: "main", label: "Главная", icon: "/assets/icons/fluent_home-48-filled.svg", href: "/commission" },
   { key: "docs", label: "Документы", icon: "/assets/icons/material-symbols_folder.svg", href: "/commission" },
   { key: "history", label: "История", icon: "/assets/icons/mingcute_time-fill.svg", href: "/commission" },
 ];
 
 const COMMON_ITEMS: NavItem[] = [
-  { key: "interview", label: "Собеседование", icon: "/assets/icons/mdi_user.svg", href: "/commission" },
+  { key: "interview", label: "Собеседование", icon: "/assets/icons/mdi_user.svg", href: "/commission/interview" },
   { key: "analytics", label: "Аналитика и выгрузка", icon: "/assets/icons/ic_round-bar-chart.svg", href: "/commission" },
 ];
 
+function buildHrefWithProgram(base: string, programParam: string | null): string {
+  if (!programParam) return base;
+  const q = new URLSearchParams();
+  q.set("program", programParam);
+  return `${base}?${q.toString()}`;
+}
+
 export function CommissionSidebar({ isOpen, program, onProgramChange }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const programFromUrl = searchParams.get("program");
   const [programMenuOpen, setProgramMenuOpen] = useState(false);
   const programLabel = useMemo(() => {
     if (!program) return "Все";
@@ -93,22 +102,32 @@ export function CommissionSidebar({ isOpen, program, onProgramChange }: Props) {
 
         <div className={styles.section}>
           <p className={styles.sectionTitle}>Программные</p>
-          {PROGRAM_ITEMS.map((item) => (
-            <Link key={item.key} href={item.href} className={`${styles.item}${item.active ? ` ${styles.active}` : ""}`}>
-              <Image src={item.icon} alt="" width={20} height={20} />
-              <span className={styles.itemLabel}>{item.label}</span>
-            </Link>
-          ))}
+          {PROGRAM_ITEMS.map((item) => {
+            const active = item.key === "main" && pathname === "/commission";
+            return (
+              <Link key={item.key} href={item.href} className={`${styles.item}${active ? ` ${styles.active}` : ""}`}>
+                <Image src={item.icon} alt="" width={20} height={20} />
+                <span className={styles.itemLabel}>{item.label}</span>
+              </Link>
+            );
+          })}
         </div>
 
         <div className={styles.section}>
           <p className={styles.sectionTitle}>Общие</p>
-          {COMMON_ITEMS.map((item) => (
-            <Link key={item.key} href={item.href} className={styles.item}>
-              <Image src={item.icon} alt="" width={20} height={20} />
-              <span className={styles.itemLabel}>{item.label}</span>
-            </Link>
-          ))}
+          {COMMON_ITEMS.map((item) => {
+            const active = item.key === "interview" && pathname.startsWith("/commission/interview");
+            const href =
+              item.key === "interview"
+                ? buildHrefWithProgram(item.href, program ?? programFromUrl)
+                : item.href;
+            return (
+              <Link key={item.key} href={href} className={`${styles.item}${active ? ` ${styles.active}` : ""}`}>
+                <Image src={item.icon} alt="" width={20} height={20} />
+                <span className={styles.itemLabel}>{item.label}</span>
+              </Link>
+            );
+          })}
         </div>
 
         <div className={styles.spacer} />

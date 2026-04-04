@@ -30,7 +30,7 @@ export function ValidationReportCard({ report }: Props) {
   if (!report) {
     return (
       <div style={{ padding: 16, background: "#f9fafb", borderRadius: 8, border: "1px solid #e5e7eb" }}>
-        <p style={{ margin: 0, color: "#9ca3af", fontSize: 14 }}>Валидация данных ещё не выполнялась.</p>
+        <p style={{ margin: 0, color: "#9ca3af", fontSize: 14, fontWeight: 350 }}>Валидация данных ещё не выполнялась.</p>
       </div>
     );
   }
@@ -47,7 +47,7 @@ export function ValidationReportCard({ report }: Props) {
         <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Валидация данных</h3>
         <span style={{
           fontSize: 12,
-          fontWeight: 500,
+          fontWeight: 450,
           padding: "2px 8px",
           borderRadius: 4,
           color: "#fff",
@@ -59,29 +59,29 @@ export function ValidationReportCard({ report }: Props) {
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {checks.map(({ key, data }) => (
           <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 14 }}>
-            <span style={{ color: "#374151" }}>{CHECK_LABELS[key] ?? key}</span>
+            <span style={{ color: "#374151", fontWeight: 350 }}>{CHECK_LABELS[key] ?? key}</span>
             {data ? (
-              <span style={{ color: statusColor(data.status), fontWeight: 500, fontSize: 13 }}>
+              <span style={{ color: statusColor(data.status), fontWeight: 450, fontSize: 13 }}>
                 {STATUS_LABELS[data.status] ?? data.status}
               </span>
             ) : (
-              <span style={{ color: "#9ca3af", fontSize: 13 }}>—</span>
+              <span style={{ color: "#9ca3af", fontSize: 13, fontWeight: 350 }}>—</span>
             )}
           </div>
         ))}
       </div>
       {report.warnings.length > 0 && (
-        <div style={{ marginTop: 8, fontSize: 13, color: "#d97706" }}>
+        <div style={{ marginTop: 8, fontSize: 13, fontWeight: 350, color: "#d97706" }}>
           {report.warnings.map((w, i) => <p key={i} style={{ margin: "2px 0" }}>⚠ {w}</p>)}
         </div>
       )}
       {report.errors.length > 0 && (
-        <div style={{ marginTop: 8, fontSize: 13, color: "#dc2626" }}>
+        <div style={{ marginTop: 8, fontSize: 13, fontWeight: 350, color: "#dc2626" }}>
           {report.errors.map((e, i) => <p key={i} style={{ margin: "2px 0" }}>✗ {e}</p>)}
         </div>
       )}
       {report.updatedAt && (
-        <p style={{ margin: "8px 0 0", fontSize: 12, color: "#9ca3af" }}>
+        <p style={{ margin: "8px 0 0", fontSize: 12, fontWeight: 350, color: "#9ca3af" }}>
           Обновлено: {new Date(report.updatedAt).toLocaleString("ru-RU")}
         </p>
       )}

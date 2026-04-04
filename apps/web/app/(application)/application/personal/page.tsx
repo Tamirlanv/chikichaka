@@ -506,7 +506,7 @@ export default function PersonalPage() {
           Сохранить черновик
         </button>
         <button type="submit" className="btn" disabled={isSubmitting}>
-          {isSubmitting ? "Сохранение…" : "Далее"}
+          {isSubmitting ? "Сохранение…" : "Продолжить"}
         </button>
       </div>
     </form>

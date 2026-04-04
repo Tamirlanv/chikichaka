@@ -238,6 +238,8 @@
   border: 1px solid #e1e1e1;
   border-radius: 8px;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   box-sizing: border-box;
 }
 
@@ -394,7 +396,7 @@
   text-decoration: underline;
 }
 
-/* Футер анкеты: «Далее» — .btn (чёрная), не блокировать по валидации; черновик — .btn.secondary */
+/* Футер анкеты: «Продолжить» — .btn (чёрная), не блокировать по валидации; черновик — .btn.secondary */
 .formFooter {
   display: flex;
   justify-content: flex-end;

@@ -5,11 +5,12 @@ export function evaluateAuthenticity(input: {
   ocrConfidence: number | null;
   hasScore: boolean;
   missingAnchors: string[];
+  extraFraudSignals?: string[];
 }): {
   status: AuthenticityStatus;
   fraudSignals: string[];
 } {
-  const fraudSignals: string[] = [];
+  const fraudSignals: string[] = [...(input.extraFraudSignals ?? [])];
   if (input.templateScore < 0.4) fraudSignals.push("weak_template_match");
   if ((input.ocrConfidence ?? 0) < 0.45) fraudSignals.push("low_ocr_confidence");
   if (!input.hasScore) fraudSignals.push("score_not_detected");

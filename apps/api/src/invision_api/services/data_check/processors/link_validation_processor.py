@@ -26,10 +26,13 @@ def run_link_validation_processing(db: Session, *, application_id: UUID, candida
     orchestrator_warning = None
     client = ValidationOrchestratorClient()
     try:
+        checks: dict = {}
+        if links:
+            checks["links"] = {"url": links[0]}
         created = client.create_run(
             application_id=application_id,
             candidate_id=candidate_id,
-            checks=["links"],
+            checks=checks,
         )
         orchestrator_run_id = (created or {}).get("runId")
     except Exception:  # noqa: BLE001

@@ -9,7 +9,7 @@ const EnvSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OCR_LANG: z.string().default("eng"),
   MAX_FILE_SIZE_BYTES: z.coerce.number().default(8 * 1024 * 1024),
-  TOEFL_THRESHOLD: z.coerce.number().default(80)
+  TOEFL_THRESHOLD: z.coerce.number().default(60)
 });
 
 export const env = EnvSchema.parse(process.env);

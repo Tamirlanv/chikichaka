@@ -41,3 +41,14 @@ class LinkValidationConfig:
             ".webp",
         )
     )
+    #: Extensions accepted for «прямая ссылка на видеофайл» (презентация).
+    presentation_video_extensions: tuple[str, ...] = field(
+        default_factory=lambda: (
+            ".mp4",
+            ".mov",
+            ".webm",
+            ".m4v",
+            ".mkv",
+            ".avi",
+        )
+    )

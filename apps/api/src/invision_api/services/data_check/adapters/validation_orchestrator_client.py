@@ -10,6 +10,8 @@ ORCHESTRATOR_URL = os.getenv("VALIDATION_ORCHESTRATOR_URL", "http://localhost:45
 
 
 class ValidationOrchestratorClient:
+    """HTTP client for candidate-validation-orchestrator (expects nested `checks` object)."""
+
     def __init__(self, base_url: str | None = None, *, timeout_sec: float = 6.0) -> None:
         self._base_url = (base_url or ORCHESTRATOR_URL).rstrip("/")
         self._timeout = timeout_sec
@@ -19,13 +21,14 @@ class ValidationOrchestratorClient:
         *,
         application_id: UUID,
         candidate_id: UUID,
-        checks: list[str],
+        checks: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
+        """Submit a validation run. `checks` matches Fastify schema, e.g. `{"links": {"url": "..."}}`."""
         url = f"{self._base_url}/candidate-validation/runs"
-        payload = {
+        payload: dict[str, Any] = {
             "applicationId": str(application_id),
             "candidateId": str(candidate_id),
-            "checks": checks,
+            "checks": checks or {},
         }
         with httpx.Client(timeout=self._timeout) as client:
             resp = client.post(url, json=payload)

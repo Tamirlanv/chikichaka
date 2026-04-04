@@ -314,7 +314,7 @@ export default function InternalTestPage() {
           {saving ? "Сохранение..." : "Сохранить черновик"}
         </button>
         <button className="btn" type="button" onClick={() => void handleNext()} disabled={saving || syncState !== "ready"}>
-          Далее
+          Продолжить
         </button>
       </section>
     </div>

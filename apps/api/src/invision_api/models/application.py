@@ -66,6 +66,7 @@ class Application(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     locked_after_submit: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    interview_preferences_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     candidate_profile: Mapped["CandidateProfile"] = relationship(back_populates="applications")
     section_states: Mapped[list["ApplicationSectionState"]] = relationship(
@@ -305,6 +306,9 @@ class InterviewSession(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     session_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     interview_status: Mapped[str] = mapped_column(String(64), nullable=False)
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    scheduled_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     interview_mode: Mapped[str | None] = mapped_column(String(64), nullable=True)
     location_or_link: Mapped[str | None] = mapped_column(String(512), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

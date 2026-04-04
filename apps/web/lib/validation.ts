@@ -122,17 +122,28 @@ const educationEntrySchema = z.object({
 });
 
 /** Раздел «Образование»: презентация, язык, сертификаты; entries сохраняются для старых данных. */
-export const educationSchema = z.object({
-  entries: z.array(educationEntrySchema).max(20).default([]),
-  presentation_video_url: z.string().min(1, { message: "Укажите ссылку на презентацию" }),
-  english_proof_kind: z.enum(["ielts_6", "toefl_60_78"]),
-  certificate_proof_kind: z.enum(["ent", "nis_12"]),
-  english_document_id: z.string().min(1, { message: "Загрузите документ по английскому языку" }),
-  certificate_document_id: z.string().min(1, { message: "Загрузите сертификат" }),
-  additional_document_id: z.string().optional(),
-  consent_privacy: z.boolean().refine((v) => v === true, { message: "Необходимо согласие" }),
-  consent_parent: z.boolean().refine((v) => v === true, { message: "Необходимо подтверждение" }),
-});
+export const educationSchema = z
+  .object({
+    entries: z.array(educationEntrySchema).max(20).default([]),
+    presentation_video_url: z.string().min(1, { message: "Укажите ссылку на презентацию" }),
+    english_proof_kind: z.enum(["ielts_6", "toefl_60_78"]),
+    certificate_proof_kind: z.enum(["ent", "nis_12"]),
+    english_document_id: z.string().min(1, { message: "Загрузите документ по английскому языку" }),
+    certificate_document_id: z.string().min(1, { message: "Загрузите сертификат" }),
+    additional_document_id: z.string().optional(),
+    consent_privacy: z.boolean().refine((v) => v === true, { message: "Необходимо согласие" }),
+    consent_parent: z.boolean().refine((v) => v === true, { message: "Необходимо подтверждение" }),
+  })
+  .superRefine((data, ctx) => {
+    const u = data.presentation_video_url.trim();
+    if (u && !/^https?:\/\/.+/i.test(u)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Укажите корректную ссылку (https://…)",
+        path: ["presentation_video_url"],
+      });
+    }
+  });
 
 export const socialSchema = z.object({
   attestation: z.string().min(10, { message: "Не менее 10 символов" }).max(2000, { message: "Не более 2000 символов" }),

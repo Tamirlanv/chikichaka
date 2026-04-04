@@ -104,6 +104,9 @@ class KanbanCard:
     comment_count: int
     has_ai_summary: bool
     ai_recommendation: AIRecommendation | None
+    interview_scheduled_at_iso: str | None = None
+    interview_scheduled_by_user_id: UUID | None = None
+    education_track: str | None = None
 
 
 @dataclass(frozen=True)

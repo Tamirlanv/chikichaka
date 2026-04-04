@@ -245,24 +245,7 @@ export function ReviewScoreBlock({ data, onSave, canEdit = true }: Props) {
 
       {canEdit && (
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <button
-            type="button"
-            disabled={saving || !dirty}
-            onClick={handleSave}
-            style={{
-              padding: "10px 24px",
-              borderRadius: 8,
-              border: "none",
-              background: dirty ? "#98da00" : "#e0e0e0",
-              color: dirty ? "#fff" : "#9e9e9e",
-              fontSize: 14,
-              fontWeight: 450,
-              letterSpacing: "-0.42px",
-              cursor: dirty ? "pointer" : "default",
-              opacity: saving ? 0.6 : 1,
-              transition: "all 0.2s ease",
-            }}
-          >
+          <button type="button" className="btn" disabled={saving || !dirty} onClick={handleSave}>
             {saving ? "Сохранение..." : "Сохранить"}
           </button>
         </div>

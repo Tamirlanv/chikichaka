@@ -12,7 +12,7 @@ from invision_api.db.session import get_db
 from invision_api.models.enums import RoleName
 from invision_api.models.user import User
 from invision_api.repositories import admissions_repository
-from invision_api.services import committee_service
+from invision_api.services import candidate_stage_email_service, committee_service
 from invision_api.services.stage_transition_policy import TransitionName
 from invision_api.services.stages import (
     application_review_service,
@@ -96,9 +96,16 @@ def screening_transition(
         TransitionName.screening_blocked,
     ):
         raise HTTPException(status_code=400, detail="Недопустимый переход для скрининга")
+    prev_stage = app.current_stage
     initial_screening_service.apply_screening_transition(db, app, transition=tn, actor_user_id=user.id)
     db.commit()
     db.refresh(app)
+    if tn == TransitionName.revision_required:
+        candidate_stage_email_service.send_revision_required_notification(application_id)
+    elif tn != TransitionName.screening_blocked:
+        candidate_stage_email_service.send_stage_transition_notification(
+            application_id, prev_stage, app.current_stage
+        )
     return {"state": app.state, "current_stage": app.current_stage}
 
 
@@ -117,18 +124,21 @@ def build_review_snapshot(
 @router.post("/applications/{application_id}/review/transition-to-interview")
 def review_to_interview(
     application_id: UUID,
-    user: User = Depends(require_roles(RoleName.committee, RoleName.admin)),
+    user: User = Depends(require_roles(RoleName.admin)),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    """Ops-only: same transition as AI interview approve, but admin-only. Prefer POST .../ai-interview/approve."""
     app = admissions_repository.get_application_by_id(db, application_id)
     if not app:
         raise HTTPException(status_code=404, detail="Заявление не найдено")
+    prev_stage = app.current_stage
     try:
         application_review_service.transition_to_interview(db, app, actor_user_id=user.id)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     db.commit()
     db.refresh(app)
+    candidate_stage_email_service.send_stage_transition_notification(application_id, prev_stage, app.current_stage)
     return {"state": app.state, "current_stage": app.current_stage}
 
 
@@ -141,12 +151,14 @@ def interview_complete(
     app = admissions_repository.get_application_by_id(db, application_id)
     if not app:
         raise HTTPException(status_code=404, detail="Заявление не найдено")
+    prev_stage = app.current_stage
     try:
         interview_stage_service.complete_interview_stage(db, app, actor_user_id=user.id)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     db.commit()
     db.refresh(app)
+    candidate_stage_email_service.send_stage_transition_notification(application_id, prev_stage, app.current_stage)
     return {"state": app.state, "current_stage": app.current_stage}
 
 
@@ -159,12 +171,14 @@ def committee_advance(
     app = admissions_repository.get_application_by_id(db, application_id)
     if not app:
         raise HTTPException(status_code=404, detail="Заявление не найдено")
+    prev_stage = app.current_stage
     try:
         committee_review_service.advance_to_decision_stage(db, app, actor_user_id=user.id)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     db.commit()
     db.refresh(app)
+    candidate_stage_email_service.send_stage_transition_notification(application_id, prev_stage, app.current_stage)
     return {"state": app.state, "current_stage": app.current_stage}
 
 
@@ -199,4 +213,5 @@ def post_decision(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     db.commit()
     db.refresh(decision)
+    candidate_stage_email_service.send_final_decision_notification(application_id, body.final_decision_status)
     return {"id": str(decision.id), "final_decision_status": decision.final_decision_status}

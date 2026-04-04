@@ -65,7 +65,7 @@ def test_personal_info_read_model_sections_are_mapped(db: Session, factory):
         ApplicationSectionState(
             application_id=app.id,
             section_key="education",
-            payload={"presentation_video_url": "https://www.youtube.com/watch?v=abc"},
+            payload={"presentation_video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
             is_complete=True,
             schema_version=1,
             last_saved_at=datetime.now(tz=UTC),
@@ -83,7 +83,8 @@ def test_personal_info_read_model_sections_are_mapped(db: Session, factory):
     assert view["personalInfo"]["contacts"]["telegram"] == "@ivannnnn3"
     assert view["personalInfo"]["address"]["fullAddress"] == "Алматы, Абая 15, кв 43"
     assert len(view["personalInfo"]["guardians"]) == 2
-    assert view["personalInfo"]["videoPresentation"]["url"] == "https://www.youtube.com/watch?v=abc"
+    assert view["personalInfo"]["videoPresentation"]["url"] == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     assert view["actions"]["canComment"] is True
-    assert view["actions"]["canMoveForward"] is True
+    assert view["actions"]["canMoveForward"] is False
+    assert view["actions"]["canGenerateAiInterview"] is True
 

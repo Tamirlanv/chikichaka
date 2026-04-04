@@ -20,6 +20,25 @@ from invision_api.models.data_check_unit_result import DataCheckUnitResult
 from invision_api.repositories import data_check_repository
 from invision_api.services.data_check.status_service import TERMINAL_UNIT_STATUSES, compute_run_status
 from invision_api.models.enums import DataCheckUnitType
+from invision_api.repositories import ai_interview_repository
+
+# Подписи для комиссии (без snake_case в UI)
+_DATA_CHECK_UNIT_LABEL_RU: dict[str, str] = {
+    DataCheckUnitType.test_profile_processing.value: "Профиль теста",
+    DataCheckUnitType.motivation_processing.value: "Мотивация",
+    DataCheckUnitType.growth_path_processing.value: "Траектория роста",
+    DataCheckUnitType.achievements_processing.value: "Достижения",
+    DataCheckUnitType.link_validation.value: "Ссылки",
+    DataCheckUnitType.video_validation.value: "Видео-презентация",
+    DataCheckUnitType.certificate_validation.value: "Документы и сертификаты",
+    DataCheckUnitType.signals_aggregation.value: "Сводка сигналов по заявке",
+    DataCheckUnitType.candidate_ai_summary.value: "AI-сводка по заявке",
+}
+
+
+def _data_check_unit_label_ru(unit_type: str) -> str:
+    """Человекочитаемая подпись этапа проверки данных для сайдбара комиссии."""
+    return _DATA_CHECK_UNIT_LABEL_RU.get(unit_type, "Проверка данных")
 
 
 _TAB_TO_PANEL_TYPE: dict[str, str] = {
@@ -61,9 +80,12 @@ def _make_attention_note(
     return out
 
 
+SidebarItem = str | dict[str, Any]
+
+
 def _section_block(
     title: str,
-    items: list[str],
+    items: list[SidebarItem],
     *,
     attention_notes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -97,6 +119,100 @@ def _doc_status_label(status: str | None) -> str:
     if status in {"running", "queued", "pending"}:
         return "В обработке"
     return "Не проверено"
+
+
+_ENT_PASS_MIN = 80.0
+_IELTS_PASS_MIN = 6.0
+
+
+def _parse_numeric_score(raw: Any) -> float | None:
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        if isinstance(raw, float) and raw != raw:  # NaN
+            return None
+        return float(raw)
+    if isinstance(raw, str):
+        s = raw.strip().replace(",", ".")
+        if not s:
+            return None
+        try:
+            return float(s)
+        except ValueError:
+            return None
+    return None
+
+
+def _slot_for_certificate_result(
+    dr: dict[str, Any],
+    *,
+    english_document_id: UUID | None,
+    certificate_document_id: UUID | None,
+) -> str | None:
+    """Map a certificate_validation result row to 'english' or 'certificate' using document id or type hints."""
+    ex = dr.get("examDocument") if isinstance(dr.get("examDocument"), dict) else {}
+    doc_id_str = ex.get("documentId")
+    if isinstance(doc_id_str, str) and doc_id_str:
+        try:
+            doc_uuid = UUID(doc_id_str)
+        except ValueError:
+            doc_uuid = None
+        else:
+            if english_document_id and doc_uuid == english_document_id:
+                return "english"
+            if certificate_document_id and doc_uuid == certificate_document_id:
+                return "certificate"
+
+    combined = f"{ex.get('documentType') or ''} {dr.get('documentType') or ''}".lower()
+    if "ielts" in combined or "toefl" in combined:
+        return "english"
+    if "ent" in combined or "ент" in combined or "unt" in combined:
+        return "certificate"
+    return None
+
+
+def _build_documents_scores_items(
+    cert_unit: DataCheckUnitResult | None,
+    *,
+    english_document_id: UUID | None,
+    certificate_document_id: UUID | None,
+) -> list[SidebarItem]:
+    """ЕНТ / IELTS lines from certificate_validation first-stage payload (examDocument.detectedScore)."""
+    ent_score: float | None = None
+    ielts_score: float | None = None
+
+    if cert_unit and cert_unit.result_payload:
+        for dr in cert_unit.result_payload.get("results") or []:
+            if not isinstance(dr, dict):
+                continue
+            slot = _slot_for_certificate_result(
+                dr,
+                english_document_id=english_document_id,
+                certificate_document_id=certificate_document_id,
+            )
+            ex = dr.get("examDocument") if isinstance(dr.get("examDocument"), dict) else {}
+            score = _parse_numeric_score(ex.get("detectedScore"))
+            if slot == "certificate" and score is not None:
+                ent_score = score
+            elif slot == "english" and score is not None:
+                ielts_score = score
+
+    def _ent_item(score: float | None) -> dict[str, Any]:
+        if score is None:
+            return {"text": "ЕНТ: —", "tone": "neutral"}
+        display = str(int(score)) if score == int(score) else f"{score:.1f}".rstrip("0").rstrip(".")
+        tone = "success" if score >= _ENT_PASS_MIN else "danger"
+        return {"text": f"ЕНТ: {display}", "tone": tone}
+
+    def _ielts_item(score: float | None) -> dict[str, Any]:
+        if score is None:
+            return {"text": "IELTS: —", "tone": "neutral"}
+        tone = "success" if score >= _IELTS_PASS_MIN else "danger"
+        return {"text": f"IELTS: {score:.1f}", "tone": tone}
+
+    return [_ent_item(ent_score), _ielts_item(ielts_score)]
 
 
 def _build_validation_panel(db: Session, application_id: UUID) -> dict[str, Any]:
@@ -187,21 +303,31 @@ def _build_validation_panel(db: Session, application_id: UUID) -> dict[str, Any]
         media_items.append("Ссылки: не проверены")
     sections.append(_section_block("Медиа и ссылки", media_items))
 
-    # Block 4: Attention flags
-    warnings: list[str] = []
-    for r in unit_map.values():
-        if r.warnings:
-            warnings.extend(r.warnings)
-        if r.manual_review_required and r.status != "completed":
-            warnings.append(f"{r.unit_type}: требуется ручная проверка")
-    seen: set[str] = set()
-    deduped: list[str] = []
-    for w in warnings:
-        if w not in seen:
-            seen.add(w)
-            deduped.append(w)
-    if deduped:
-        sections.append(_section_block("Требует внимания", deduped[:8]))
+    # Block 4: Document scores from first-stage certificate validation (ЕНТ / IELTS)
+    edu_payload = _get_section_payloads(db, application_id).get("education") or {}
+    eng_doc_id = edu_payload.get("english_document_id")
+    cert_doc_id = edu_payload.get("certificate_document_id")
+
+    def _uuid_or_none(val: Any) -> UUID | None:
+        if val is None:
+            return None
+        try:
+            return val if isinstance(val, UUID) else UUID(str(val))
+        except (ValueError, TypeError):
+            return None
+
+    english_uuid = _uuid_or_none(eng_doc_id)
+    certificate_uuid = _uuid_or_none(cert_doc_id)
+    sections.append(
+        _section_block(
+            "Документы",
+            _build_documents_scores_items(
+                cert_unit,
+                english_document_id=english_uuid,
+                certificate_document_id=certificate_uuid,
+            ),
+        )
+    )
 
     return {
         "type": "validation",
@@ -1194,11 +1320,82 @@ _TAB_BUILDERS: dict[str, Any] = {
 }
 
 
+def _build_ai_interview_resolution_panel(db: Session, application_id: UUID) -> dict[str, Any]:
+    """Sidebar summary from persisted AI interview resolution JSON (commission read model)."""
+    row = ai_interview_repository.get_question_set_for_application(db, application_id)
+    title = "AI-собеседование"
+    if not row or not row.candidate_completed_at:
+        return {
+            "type": "summary",
+            "title": title,
+            "sections": [
+                _section_block("Краткий итог", ["Кандидат ещё не завершил AI-собеседование."]),
+            ],
+        }
+
+    err = (row.resolution_summary_error or "").strip()
+    data = row.resolution_summary if isinstance(row.resolution_summary, dict) else None
+
+    if err and not data:
+        return {
+            "type": "summary",
+            "title": title,
+            "sections": [
+                _section_block(
+                    "Краткий итог",
+                    [
+                        "Автоматическая сводка по AI-собеседованию недоступна. Вопросы и ответы кандидата в основной области страницы.",
+                    ],
+                ),
+            ],
+        }
+
+    if not data:
+        return {
+            "type": "summary",
+            "title": title,
+            "sections": [_section_block("Краткий итог", ["Сводка пока недоступна."])],
+        }
+
+    short = str(data.get("shortSummary") or "").strip()
+    if not short:
+        short = "Сводка пока недоступна."
+
+    def _lines(key: str) -> list[str]:
+        raw = data.get(key)
+        if not isinstance(raw, list):
+            return []
+        out = [str(x).strip() for x in raw if str(x).strip()]
+        return out if out else ["—"]
+
+    conf = data.get("confidence")
+    conf_label = ""
+    if conf == "high":
+        conf_label = "уверенность: высокая"
+    elif conf == "medium":
+        conf_label = "уверенность: средняя"
+    elif conf == "low":
+        conf_label = "уверенность: низкая"
+    if conf_label:
+        short = f"{short} ({conf_label})"
+
+    sections = [
+        _section_block("Краткий итог", [short]),
+        _section_block("Что удалось уточнить", _lines("resolvedPoints")),
+        _section_block("Что остаётся под вопросом", _lines("unresolvedPoints")),
+        _section_block("Новая информация", _lines("newInformation")),
+    ]
+    return {"type": "summary", "title": title, "sections": sections}
+
+
 def get_sidebar_panel(db: Session, *, application_id: UUID, tab: str) -> dict[str, Any]:
     """Return sidebar panel content for the given tab.
 
-    ``tab`` is one of: personal, test, motivation, path, achievements.
+    ``tab`` is one of: personal, test, motivation, path, achievements, ai_interview.
     """
+    if tab == "ai_interview":
+        return _build_ai_interview_resolution_panel(db, application_id)
+
     panel_type = _TAB_TO_PANEL_TYPE.get(tab, "validation")
 
     if panel_type == "validation":

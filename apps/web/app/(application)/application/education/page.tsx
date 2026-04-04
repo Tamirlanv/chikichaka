@@ -287,6 +287,10 @@ export default function EducationPage() {
 
   async function saveDraft() {
     setMsg(null);
+    if (linkCheck.shouldBlockSubmit) {
+      setMsg(linkCheck.result?.errors[0] ?? "Укажите подходящую ссылку на видеопрезентацию.");
+      return;
+    }
     const values = getValues();
     saveDraftLocal("education", values);
     try {
@@ -303,6 +307,10 @@ export default function EducationPage() {
 
   async function onSubmit(data: Form) {
     setMsg(null);
+    if (linkCheck.shouldBlockSubmit) {
+      setMsg(linkCheck.result?.errors[0] ?? "Укажите подходящую ссылку на видеопрезентацию.");
+      return;
+    }
     try {
       await apiFetch("/candidates/me/application/sections/education", {
         method: "PATCH",
@@ -348,7 +356,7 @@ export default function EducationPage() {
                 color:
                   linkCheck.status === "checking"
                     ? "var(--text-secondary, #888)"
-                    : linkCheck.status === "reachable"
+                    : linkCheck.status === "ok"
                       ? "var(--success, #2e7d32)"
                       : "var(--warning, #e65100)",
               }}
@@ -510,11 +518,16 @@ export default function EducationPage() {
       )}
 
       <div className={formStyles.formFooter}>
-        <button type="button" className="btn secondary" onClick={() => void saveDraft()} disabled={isSubmitting}>
+        <button
+          type="button"
+          className="btn secondary"
+          onClick={() => void saveDraft()}
+          disabled={isSubmitting || linkCheck.shouldBlockSubmit}
+        >
           Сохранить черновик
         </button>
-        <button type="submit" className="btn" disabled={isSubmitting}>
-          {isSubmitting ? "Сохранение…" : "Далее"}
+        <button type="submit" className="btn" disabled={isSubmitting || linkCheck.shouldBlockSubmit}>
+          {isSubmitting ? "Сохранение…" : "Продолжить"}
         </button>
       </div>
     </form>

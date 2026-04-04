@@ -262,7 +262,33 @@ export type CommissionApplicationPersonalInfoView = {
   actions: {
     canComment: boolean;
     canMoveForward: boolean;
+    canApproveAiInterview?: boolean;
+    canGenerateAiInterview?: boolean;
   };
+};
+
+export type AiInterviewDraftQuestion = {
+  id: string;
+  questionText: string;
+  reasonType?: string;
+  reasonDescription?: string;
+  sourceSections?: string[];
+  severity?: string;
+  generatedBy?: string;
+  isEditedByCommission?: boolean;
+  commissionEditedText?: string | null;
+  sortOrder?: number;
+};
+
+export type AiInterviewDraftView = {
+  applicationId: string;
+  status: string;
+  revision: number;
+  questions: AiInterviewDraftQuestion[];
+  generatedFromSignals?: Record<string, unknown> | null;
+  generatedAt: string | null;
+  approvedAt: string | null;
+  approvedByUserId: string | null;
 };
 
 export type CommissionApplicationTestInfoView = {
@@ -291,9 +317,17 @@ export type CommissionApplicationTestInfoView = {
   } | null;
 };
 
+/** Sidebar line: plain string or scored line with tone (commission validation «Документы»). */
+export type SidebarSectionItem =
+  | string
+  | {
+      text: string;
+      tone?: "neutral" | "success" | "danger";
+    };
+
 export type SidebarSection = {
   title: string;
-  items: string[];
+  items: SidebarSectionItem[];
   attentionNotes?: AttentionNote[];
 };
 
@@ -332,5 +366,37 @@ export type ReviewScoreBlock = {
   items: ReviewScoreItem[];
   totalScore: number;
   maxTotalScore: number;
+};
+
+/** Read-only AI interview Q/A + preferred slots for commission (from GET .../ai-interview/candidate-session). */
+export type CommissionAiInterviewResolutionSummary = {
+  shortSummary: string;
+  resolvedPoints: string[];
+  unresolvedPoints: string[];
+  newInformation: string[];
+  confidence: "low" | "medium" | "high";
+  generatedAt: string;
+  promptVersion?: string;
+};
+
+/** Read-only AI interview Q/A + preferred slots for commission (from GET .../ai-interview/candidate-session). */
+export type CommissionAiInterviewSessionView = {
+  applicationId: string;
+  candidateId: string;
+  sessionId: string | null;
+  interviewCompletedAt: string | null;
+  questionsAndAnswers: Array<{
+    questionId: string;
+    questionText: string;
+    answerText: string;
+    order: number;
+  }>;
+  preferredSlots: Array<{
+    date: string;
+    timeRangeCode: string;
+    timeRange: string;
+  }>;
+  resolutionSummary: CommissionAiInterviewResolutionSummary | null;
+  resolutionSummaryError: string | null;
 };
 

@@ -29,6 +29,12 @@
   animation: fadePage 0.5s ease-out;
 }
 
+/* AI interview chat: чуть больше воздуха сверху/снизу у колонки контента */
+.mainInterview {
+  padding-top: 40px;
+  padding-bottom: 40px;
+}
+
 @keyframes fadePage {
   from {
     opacity: 0;

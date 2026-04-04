@@ -1,0 +1,29 @@
+/*
+ * Shared enter animation for commission tab *panels* only (not tab bars / pills).
+ * Timing matches candidate form sections: components/application/form-ui.module.css (.formSection fadeInUp).
+ */
+.tabPanelEnter {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+  animation: commissionMainTabContentIn 0.45s ease-out both;
+}
+
+@keyframes commissionMainTabContentIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabPanelEnter {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

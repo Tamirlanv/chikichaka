@@ -1,14 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { ApiError, apiFetch, apiFetchCached, bustApiCache } from "@/lib/api-client";
 import { getApplicationCompletionSummary, type ReviewSectionState } from "@/lib/application-completion";
-import { isDataVerificationStage, type CandidateApplicationStatus } from "@/lib/candidate-status";
+import {
+  isApplicationReviewStage,
+  isDataVerificationStage,
+  isInterviewStage,
+  type CandidateApplicationStatus,
+} from "@/lib/candidate-status";
+import { buildApplicationReviewCopy } from "@/lib/application-review-copy";
 import { buildDataVerificationCopy } from "@/lib/data-verification-copy";
 import { clearAllDrafts } from "@/lib/draft-storage";
 import { ApplicationHeader } from "./ApplicationHeader";
 import { ApplicationStickyNav } from "./ApplicationStickyNav";
 import { ApplicationSidebar } from "./ApplicationSidebar";
+import { ApplicationReviewView } from "./ApplicationReviewView";
 import { DataVerificationView } from "./DataVerificationView";
 import { ApplicationFooter } from "./ApplicationFooter";
 import { SubmitConfirmationModal, type ModalDocument } from "./SubmitConfirmationModal";
@@ -50,6 +58,10 @@ type Props = {
 };
 
 export function ApplicationShell({ children }: Props) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const isInterviewChatRoute = pathname?.startsWith("/application/interview") ?? false;
+
   const [firstName, setFirstName] = useState<string | undefined>(undefined);
   const [emailVerified, setEmailVerified] = useState(false);
   const [statusData, setStatusData] = useState<CandidateApplicationStatus | null>(null);
@@ -125,6 +137,16 @@ export function ApplicationShell({ children }: Props) {
     void loadStatus();
   }, [loadStatus]);
 
+  const inInterviewStage = isInterviewStage(statusData);
+
+  useEffect(() => {
+    if (statusLoading || !statusData) return;
+    if (!inInterviewStage || !pathname) return;
+    if (!pathname.startsWith("/application")) return;
+    if (pathname.startsWith("/application/interview")) return;
+    router.replace("/application/interview");
+  }, [statusLoading, statusData, inInterviewStage, pathname, router]);
+
   function handleOpenModal() {
     setReview(null);
     setModalOpen(true);
@@ -188,28 +210,46 @@ export function ApplicationShell({ children }: Props) {
   }));
 
   const inDataVerificationStage = isDataVerificationStage(statusData);
+  const inApplicationReviewStage = isApplicationReviewStage(statusData);
+  const inCandidateWaitingStage = inDataVerificationStage || inApplicationReviewStage;
   const dataVerificationCopy = useMemo(() => buildDataVerificationCopy(statusData), [statusData]);
+  const applicationReviewCopy = useMemo(() => buildApplicationReviewCopy(statusData), [statusData]);
+
+  const interviewStageHeader =
+    inInterviewStage || isInterviewChatRoute ? "Пожалуйста пройдите этап собеседование" : null;
+
+  const headerSubtitle = interviewStageHeader
+    ? interviewStageHeader
+    : inDataVerificationStage
+      ? dataVerificationCopy.stageHint
+      : inApplicationReviewStage
+        ? applicationReviewCopy.stageHint
+        : "Заполните форму, загрузите документы и отправляйте заявку";
+
+  const hideFormChromeForInterview = inInterviewStage || isInterviewChatRoute;
+  const showStickyNav = !inCandidateWaitingStage && !hideFormChromeForInterview;
+  const showSubmitButton = !inCandidateWaitingStage && !hideFormChromeForInterview;
 
   return (
     <div className={styles.page}>
       <ApplicationHeader
         candidateName={firstName}
-        subtitle={
-          inDataVerificationStage
-            ? dataVerificationCopy.stageHint
-            : "Заполните форму, загрузите документы и отправляйте заявку"
-        }
-        showSubmitButton={!inDataVerificationStage}
+        subtitle={headerSubtitle}
+        showSubmitButton={showSubmitButton}
         onSubmitClick={handleOpenModal}
         onClearClick={() => void handleClearForm()}
       />
-      {!inDataVerificationStage ? <ApplicationStickyNav /> : null}
+      {showStickyNav ? <ApplicationStickyNav /> : null}
       <div className={styles.layoutRow}>
-        <main className={styles.main}>
+        <main className={isInterviewChatRoute ? `${styles.main} ${styles.mainInterview}` : styles.main}>
           {statusLoading && !statusData ? (
             <p className="muted">Загрузка этапа...</p>
           ) : inDataVerificationStage ? (
             <DataVerificationView status={statusData} onRetrySubmit={handleRetrySubmit} />
+          ) : inApplicationReviewStage ? (
+            <ApplicationReviewView status={statusData} />
+          ) : inInterviewStage && !isInterviewChatRoute ? (
+            <p className="muted">Переход к собеседованию…</p>
           ) : (
             <div key={resetKey}>{children}</div>
           )}

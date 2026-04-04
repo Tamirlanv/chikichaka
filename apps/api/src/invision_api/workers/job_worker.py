@@ -9,6 +9,8 @@ from uuid import UUID
 from invision_api.core.redis_client import get_redis_client
 from invision_api.db.session import SessionLocal
 from invision_api.models.enums import DataCheckUnitType, JobType
+from invision_api.repositories import admissions_repository
+from invision_api.services import candidate_stage_email_service
 from invision_api.services.data_check import job_runner_service
 from invision_api.services.job_dispatcher_service import QUEUE_NAME
 from invision_api.services import text_extraction_service
@@ -38,6 +40,8 @@ def process_payload(payload: dict[str, Any]) -> None:
         elif job_type == JobType.data_check_unit.value:
             run_id = UUID(payload["run_id"])
             unit_type = DataCheckUnitType(payload["unit_type"])
+            app_before = admissions_repository.get_application_by_id(db, app_id)
+            prev_stage = app_before.current_stage if app_before else None
             job_runner_service.run_unit(
                 db,
                 application_id=app_id,
@@ -46,6 +50,12 @@ def process_payload(payload: dict[str, Any]) -> None:
                 analysis_job_id=analysis_job_id,
             )
             db.commit()
+            if prev_stage is not None:
+                app_after = admissions_repository.get_application_by_id(db, app_id)
+                if app_after and app_after.current_stage != prev_stage:
+                    candidate_stage_email_service.send_stage_transition_notification(
+                        app_id, prev_stage, app_after.current_stage
+                    )
         else:
             db.rollback()
     except Exception:

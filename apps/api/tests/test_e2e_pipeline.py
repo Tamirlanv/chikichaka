@@ -115,7 +115,7 @@ class TestE2EPipeline:
             "/api/v1/candidates/me/application/sections/education",
             json={"payload": {
                 "entries": [{"institution_name": "E2E School", "is_current": False}],
-                "presentation_video_url": "https://youtube.com/watch?v=e2e",
+                "presentation_video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
                 "english_proof_kind": "ielts_6",
                 "certificate_proof_kind": "ent",
             }},

@@ -23,7 +23,14 @@ def load_submitted_application_or_404(db: Session, application_id: UUID) -> Appl
     return app
 
 
-def resolve_commission_actions(db: Session, actor: User, *, can_advance_stage: bool) -> dict[str, Any]:
+def resolve_commission_actions(
+    db: Session,
+    actor: User,
+    *,
+    can_advance_stage: bool,
+    can_approve_ai_interview: bool = False,
+    can_generate_ai_interview: bool = False,
+) -> dict[str, Any]:
     row = db.get(CommissionUser, actor.id)
     role = row.role if row else None
     is_global_admin = False
@@ -35,5 +42,7 @@ def resolve_commission_actions(db: Session, actor: User, *, can_advance_stage: b
     return {
         "canComment": bool(is_reviewer),
         "canMoveForward": bool(is_reviewer and can_advance_stage),
+        "canApproveAiInterview": bool(is_reviewer and can_approve_ai_interview),
+        "canGenerateAiInterview": bool(is_reviewer and can_generate_ai_interview),
     }
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AIInterviewPanel } from "@/components/commission/detail/AIInterviewPanel";
 import { CommissionCommentBlock } from "@/components/commission/detail/CommissionCommentBlock";
 import { MoveNextStageButton } from "@/components/commission/detail/MoveNextStageButton";
 import { PersonalInfoSection } from "@/components/commission/detail/PersonalInfoSection";
@@ -28,6 +29,7 @@ import type {
   CommissionRole,
   ReviewScoreBlock as ReviewScoreBlockType,
 } from "@/lib/commission/types";
+import tabTransitionStyles from "@/components/commission/detail/commission-tab-transitions.module.css";
 import styles from "./page.module.css";
 
 type LoadError = { status: number | null; message: string };
@@ -46,6 +48,27 @@ function formatAttentionSeverity(severity: AttentionNote["severity"]): string {
   if (severity === "high") return "Высокий приоритет";
   if (severity === "medium") return "Средний приоритет";
   return "Низкий приоритет";
+}
+
+/** Колонка комиссии в UI (не меняет этап кандидата). */
+function commissionPillIndexFromStage(stage: string): number {
+  const s = String(stage);
+  if (s === "interview") return 1;
+  if (s === "committee_decision" || s === "result") return 2;
+  return 0;
+}
+
+/** Подпись этапа на доске комиссии (колонка воронки). */
+function commissionStageLabelRu(stage: string | undefined | null): string {
+  const s = String(stage ?? "");
+  const labels: Record<string, string> = {
+    data_check: "Проверка данных",
+    application_review: "Оценка заявки",
+    interview: "Собеседование",
+    committee_decision: "Решение комиссии",
+    result: "Результат",
+  };
+  return labels[s] ?? (s ? s : "—");
 }
 
 function ProcessingBanner({ data }: { data: CommissionApplicationPersonalInfoView }) {
@@ -81,12 +104,12 @@ function ProcessingBanner({ data }: { data: CommissionApplicationPersonalInfoVie
       <p style={{ margin: 0, fontSize: 14, fontWeight: 550 }}>
         {isError ? "Требуется внимание" : "Обработка заявки"}
       </p>
-      <p style={{ margin: 0, fontSize: 14, color: "#626262" }}>{label}</p>
+      <p style={{ margin: 0, fontSize: 14, fontWeight: 350, color: "#626262" }}>{label}</p>
       {ps.warnings.length > 0 ? (
-        <p style={{ margin: 0, fontSize: 13, color: "#626262" }}>{ps.warnings.join("; ")}</p>
+        <p style={{ margin: 0, fontSize: 13, fontWeight: 350, color: "#626262" }}>{ps.warnings.join("; ")}</p>
       ) : null}
       {ps.errors.length > 0 ? (
-        <p style={{ margin: 0, fontSize: 13, color: "#e53935" }}>{ps.errors.join("; ")}</p>
+        <p style={{ margin: 0, fontSize: 13, fontWeight: 350, color: "#e53935" }}>{ps.errors.join("; ")}</p>
       ) : null}
     </div>
   );
@@ -116,6 +139,17 @@ export default function CommissionApplicationDetailPage() {
   const [sectionScores, setSectionScores] = useState<ReviewScoreBlockType | null>(null);
   const [scoresLoading, setScoresLoading] = useState(false);
   const lastScoresTabRef = useRef<string>("");
+
+  const [commissionPillIndex, setCommissionPillIndex] = useState(0);
+  const [interviewSubTab, setInterviewSubTab] = useState("Подготовка вопросов");
+  const commissionAppSyncRef = useRef<string | undefined>(undefined);
+
+  const effectiveSidebarTab = useMemo(() => {
+    if (commissionPillIndex === 1 && interviewSubTab === "AI-собеседование") {
+      return "ai_interview";
+    }
+    return activeTab;
+  }, [commissionPillIndex, interviewSubTab, activeTab]);
 
   async function handleDelete() {
     if (!applicationId || deleteRef.current) return;
@@ -170,11 +204,11 @@ export default function CommissionApplicationDetailPage() {
   }, [applicationId]);
 
   useEffect(() => {
-    if (!applicationId || lastSidebarTabRef.current === activeTab) return;
-    lastSidebarTabRef.current = activeTab;
+    if (!applicationId || lastSidebarTabRef.current === effectiveSidebarTab) return;
+    lastSidebarTabRef.current = effectiveSidebarTab;
     let cancelled = false;
     setSidebarLoading(true);
-    getCommissionSidebarPanel(applicationId!, activeTab)
+    getCommissionSidebarPanel(applicationId!, effectiveSidebarTab)
       .then((panel) => {
         if (!cancelled) setSidebarPanel(panel);
       })
@@ -187,7 +221,7 @@ export default function CommissionApplicationDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, applicationId]);
+  }, [effectiveSidebarTab, applicationId]);
 
   useEffect(() => {
     if (activeTab !== "Тест" || !applicationId || testFetchedRef.current) return;
@@ -224,6 +258,14 @@ export default function CommissionApplicationDetailPage() {
       });
     return () => { cancelled = true; };
   }, [activeTab, applicationId]);
+
+  useEffect(() => {
+    if (!data?.applicationId) return;
+    if (commissionAppSyncRef.current === data.applicationId) return;
+    commissionAppSyncRef.current = data.applicationId;
+    setCommissionPillIndex(commissionPillIndexFromStage(String(data.stageContext.currentStage)));
+    setInterviewSubTab("Подготовка вопросов");
+  }, [data]);
 
   const permissions = useMemo(() => permissionsFromRole(role), [role]);
 
@@ -283,8 +325,7 @@ export default function CommissionApplicationDetailPage() {
   return (
     <main className={styles.root}>
       <div className={styles.header}>
-        <h1 className={styles.pageTitle}>Страница ученика</h1>
-        <Link href="/commission" style={{ fontSize: 14, color: "#626262", textDecoration: "none" }}>
+        <Link href="/commission" className={styles.backToBoard}>
           ← К доске
         </Link>
       </div>
@@ -308,6 +349,9 @@ export default function CommissionApplicationDetailPage() {
                 {data.candidateSummary.telegram ? (
                   <p className={styles.candidateMeta}>tg: {data.candidateSummary.telegram}</p>
                 ) : null}
+                <p className={styles.candidateMeta}>
+                  Этап: {commissionStageLabelRu(data.stageContext?.currentStage)}
+                </p>
               </div>
               {data.candidateSummary.submittedAt ? (
                 <p className={styles.candidateDate}>
@@ -319,34 +363,42 @@ export default function CommissionApplicationDetailPage() {
 
           {/* Card 2: Sidebar panel — swaps based on active tab */}
           <section className={styles.sideCard}>
-            <h3 className={styles.aiTitle}>{sidebarPanel?.title ?? "Summary"}</h3>
-            {sidebarLoading ? (
-              <p className={styles.aiText}>Загрузка...</p>
-            ) : sidebarPanel ? (
-              <div style={{ display: "grid", gap: 16 }}>
-                {sidebarPanel.sections.map((section) => (
-                  <div key={section.title} style={{ display: "grid", gap: 4 }}>
-                    <p className={styles.aiLabel}>{section.title}</p>
-                    {section.attentionNotes && section.attentionNotes.length > 0 ? (
-                      section.attentionNotes.map((note, i) => (
-                        <p key={`${note.category}-${i}`} className={styles.aiText}>
-                          <span style={{ fontWeight: 500 }}>{note.title}:</span> {note.message}
-                          <span style={{ color: "#8b8b8b" }}> ({formatAttentionSeverity(note.severity)})</span>
-                        </p>
-                      ))
-                    ) : (
-                      section.items.map((item, i) => (
-                        <p key={i} className={styles.aiText}>
-                          {item}
-                        </p>
-                      ))
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className={styles.aiText}>Данные недоступны.</p>
-            )}
+            <div key={`${commissionPillIndex}-${effectiveSidebarTab}`} className={styles.sidebarPanelEnter}>
+              <h3 className={styles.aiTitle}>{sidebarPanel?.title ?? "Summary"}</h3>
+              {sidebarLoading ? (
+                <p className={styles.aiText}>Загрузка...</p>
+              ) : sidebarPanel ? (
+                <div style={{ display: "grid", gap: 16 }}>
+                  {sidebarPanel.sections.map((section) => (
+                    <div key={section.title} style={{ display: "grid", gap: 4 }}>
+                      <p className={styles.aiLabel}>{section.title}</p>
+                      {section.attentionNotes && section.attentionNotes.length > 0 ? (
+                        section.attentionNotes.map((note, i) => (
+                          <p key={`${note.category}-${i}`} className={styles.aiText}>
+                            <span style={{ fontWeight: 450 }}>{note.title}:</span> {note.message}
+                            <span style={{ color: "#8b8b8b" }}> ({formatAttentionSeverity(note.severity)})</span>
+                          </p>
+                        ))
+                      ) : (
+                        section.items.map((item, i) => {
+                          const text = typeof item === "string" ? item : item.text;
+                          const tone = typeof item === "string" ? undefined : item.tone;
+                          const color =
+                            tone === "success" ? "#15803d" : tone === "danger" ? "#b91c1c" : undefined;
+                          return (
+                            <p key={i} className={styles.aiText} style={color ? { color } : undefined}>
+                              {text}
+                            </p>
+                          );
+                        })
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className={styles.aiText}>Данные недоступны.</p>
+              )}
+            </div>
           </section>
 
           {/* Card 3: Comment */}
@@ -367,6 +419,22 @@ export default function CommissionApplicationDetailPage() {
             data={data}
             activeTab={activeTab}
             onTabChange={setActiveTab}
+            commissionPillIndex={commissionPillIndex}
+            onCommissionPillChange={setCommissionPillIndex}
+            interviewSubTab={interviewSubTab}
+            onInterviewSubTabChange={setInterviewSubTab}
+            interviewPrepSlot={
+              <AIInterviewPanel
+                applicationId={data.applicationId}
+                canGenerate={Boolean(data.actions.canGenerateAiInterview)}
+                canApprove={Boolean(data.actions.canApproveAiInterview)}
+                isActive={commissionPillIndex === 1 && interviewSubTab === "Подготовка вопросов"}
+                onChanged={async () => {
+                  const detail = await getCommissionApplicationPersonalInfo(applicationId!);
+                  setData(detail);
+                }}
+              />
+            }
             moveButton={
               <MoveNextStageButton
                 applicationId={data.applicationId}
@@ -375,6 +443,8 @@ export default function CommissionApplicationDetailPage() {
             }
           />
 
+          {commissionPillIndex === 0 && activeTab !== "Личная информация" && (
+            <div key={activeTab} className={tabTransitionStyles.tabPanelEnter}>
           {activeTab === "Тест" && (
             testLoading ? (
               <p style={{ color: "#626262", fontSize: 14 }}>Загрузка теста...</p>
@@ -390,11 +460,11 @@ export default function CommissionApplicationDetailPage() {
               <h3
                 style={{
                   margin: 0,
-                  fontSize: 32,
+                  fontSize: 20,
                   fontWeight: 550,
                   color: "#262626",
-                  letterSpacing: "-0.96px",
-                  lineHeight: "32px",
+                  letterSpacing: "-0.6px",
+                  lineHeight: "20px",
                 }}
               >
                 Мотивационное письмо
@@ -418,7 +488,7 @@ export default function CommissionApplicationDetailPage() {
                   fontWeight: 350,
                   color: "#262626",
                   letterSpacing: "-0.48px",
-                  lineHeight: "22px",
+                  lineHeight: "20px",
                   whiteSpace: "pre-wrap",
                 }}
               >
@@ -435,11 +505,11 @@ export default function CommissionApplicationDetailPage() {
                     <h3
                       style={{
                         margin: 0,
-                        fontSize: 32,
+                        fontSize: 20,
                         fontWeight: 550,
                         color: "#262626",
-                        letterSpacing: "-0.96px",
-                        lineHeight: "32px",
+                        letterSpacing: "-0.6px",
+                        lineHeight: "20px",
                       }}
                     >
                       {item.questionTitle}
@@ -463,7 +533,7 @@ export default function CommissionApplicationDetailPage() {
                         fontWeight: 350,
                         color: "#626262",
                         letterSpacing: "-0.48px",
-                        lineHeight: "22px",
+                        lineHeight: "20px",
                       }}
                     >
                       {item.description}
@@ -472,10 +542,10 @@ export default function CommissionApplicationDetailPage() {
                       style={{
                         margin: "8px 0 0",
                         fontSize: 16,
-                        fontWeight: 400,
+                        fontWeight: 350,
                         color: "#262626",
                         letterSpacing: "-0.48px",
-                        lineHeight: "24px",
+                        lineHeight: "20px",
                         whiteSpace: "pre-wrap",
                       }}
                     >
@@ -497,11 +567,11 @@ export default function CommissionApplicationDetailPage() {
                 <h3
                   style={{
                     margin: 0,
-                    fontSize: 32,
+                    fontSize: 20,
                     fontWeight: 550,
                     color: "#262626",
-                    letterSpacing: "-0.96px",
-                    lineHeight: "32px",
+                    letterSpacing: "-0.6px",
+                    lineHeight: "20px",
                   }}
                 >
                   Описание
@@ -525,7 +595,7 @@ export default function CommissionApplicationDetailPage() {
                     fontWeight: 350,
                     color: "#262626",
                     letterSpacing: "-0.48px",
-                    lineHeight: "24px",
+                    lineHeight: "20px",
                     whiteSpace: "pre-wrap",
                   }}
                 >
@@ -593,11 +663,11 @@ export default function CommissionApplicationDetailPage() {
                 <h3
                   style={{
                     margin: 0,
-                    fontSize: 32,
+                    fontSize: 20,
                     fontWeight: 550,
                     color: "#262626",
-                    letterSpacing: "-0.96px",
-                    lineHeight: "32px",
+                    letterSpacing: "-0.6px",
+                    lineHeight: "20px",
                   }}
                 >
                   Источники
@@ -644,8 +714,10 @@ export default function CommissionApplicationDetailPage() {
               </div>
             </section>
           )}
+            </div>
+          )}
 
-          {activeTab !== "Личная информация" && (
+          {commissionPillIndex === 0 && activeTab !== "Личная информация" && (
             scoresLoading ? (
               <p style={{ color: "#626262", fontSize: 14, marginTop: 16 }}>Загрузка оценок...</p>
             ) : sectionScores && sectionScores.items.length > 0 ? (

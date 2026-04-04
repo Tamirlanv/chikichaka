@@ -152,11 +152,27 @@
   width: 100%;
 }
 
-/* Dotted connector rendered inline after the current active stage */
+/* Три зелёные точки под активным этапом — визуальный переход к следующему пункту */
 .stageConnector {
   margin-left: 5px;
-  padding: 2px 0;
+  padding: 0;
   line-height: 0;
+}
+
+.connectorDots {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 6px 0 0;
+}
+
+.connectorDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #98da00;
+  flex-shrink: 0;
 }
 
 .stepItemList {

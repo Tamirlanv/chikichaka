@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy import Select, String, func, or_, select
 from sqlalchemy.orm import Session
 
+from invision_api.models.ai_interview import AIInterviewQuestionSet
 from invision_api.models.application import (
     AdmissionDecision,
     AIReviewMetadata,
@@ -113,6 +114,10 @@ def upsert_projection_for_application(db: Session, app: Application) -> Applicat
     else:
         row.current_stage_status = None
         row.attention_flag_manual = False
+
+    qs = db.scalars(select(AIInterviewQuestionSet).where(AIInterviewQuestionSet.application_id == app.id)).first()
+    row.ai_interview_completed_at = qs.candidate_completed_at if qs else None
+    row.interview_preferences_submitted_at = app.interview_preferences_submitted_at
     return row
 
 
@@ -124,12 +129,15 @@ def list_projections(
     attention_only: bool = False,
     program: str | None = None,
     search: str | None = None,
+    interview_kanban_only: bool = False,
     limit: int = 50,
     offset: int = 0,
 ) -> list[ApplicationCommissionProjection]:
     stmt: Select[tuple[ApplicationCommissionProjection]] = select(ApplicationCommissionProjection)
     if stage:
         stmt = stmt.where(ApplicationCommissionProjection.current_stage == stage)
+    if interview_kanban_only:
+        stmt = stmt.where(ApplicationCommissionProjection.interview_preferences_submitted_at.is_not(None))
     if stage_status:
         stmt = stmt.where(ApplicationCommissionProjection.current_stage_status == stage_status)
     if attention_only:

@@ -9,6 +9,19 @@ AvailabilityStatus = Literal["reachable", "unreachable", "timeout", "forbidden",
 ProviderType = Literal["generic", "google_drive", "google_docs", "dropbox", "onedrive", "youtube", "vimeo", "unknown"]
 ResourceType = Literal["web_page", "file", "video", "cloud_resource", "unknown"]
 
+VideoPresentationProvider = Literal["google_drive", "youtube", "direct", "unknown"]
+VideoPresentationResourceType = Literal[
+    "video",
+    "folder",
+    "document",
+    "playlist",
+    "channel_page",
+    "unsupported_page",
+    "file_non_video",
+    "web_page",
+    "unknown",
+]
+
 
 class LinkValidationRequest(BaseModel):
     url: str = Field(min_length=1, max_length=4096)
@@ -56,6 +69,20 @@ class AvailabilityResult(BaseModel):
     status: AvailabilityStatus
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+
+
+class VideoLinkValidationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    isValid: bool
+    provider: VideoPresentationProvider
+    resourceType: VideoPresentationResourceType
+    isAccessible: bool
+    isProcessableVideo: bool
+    detectedMimeType: str | None = None
+    detectedExtension: str | None = None
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class LinkValidationResult(BaseModel):

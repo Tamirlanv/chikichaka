@@ -138,7 +138,7 @@ export default function SocialStatusPage() {
       </div>
 
       <Link className="btn" href="/application/personal" style={{ alignSelf: "flex-start" }}>
-        Далее
+        Продолжить
       </Link>
     </div>
   );

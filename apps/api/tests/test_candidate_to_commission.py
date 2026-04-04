@@ -135,7 +135,7 @@ def test_full_candidate_to_commission_pipeline(db: Session, factory, monkeypatch
     })
     save_section(db, user, SectionKey.education, {
         "entries": [{"institution_name": "НИШ", "is_current": True}],
-        "presentation_video_url": "https://youtube.com/watch?v=abc",
+        "presentation_video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         "english_proof_kind": "ielts_6",
         "certificate_proof_kind": "ent",
     })

@@ -1,8 +1,12 @@
-import { apiFetch } from "../api-client";
+import { apiFetch, apiFetchBlob } from "../api-client";
 import { COMMISSION_STAGE_ORDER, COMMISSION_STAGE_TITLES } from "./constants";
 import { sortColumnApplications } from "./sort";
 import { getApplicationCardVisualState } from "./visual-state";
+import { buildInterviewColumns, mapApiRowToInterviewCard } from "./interviewBoard";
+import type { InterviewBoardColumn, InterviewBoardFilters } from "./interviewTypes";
 import type {
+  AiInterviewDraftView,
+  CommissionAiInterviewSessionView,
   CommissionBoardApplicationCard,
   CommissionBoardFilters,
   CommissionBoardMetrics,
@@ -130,6 +134,19 @@ export async function getCommissionRole(): Promise<CommissionRole | null> {
   }
 }
 
+export async function getCommissionInterviewBoard(filters: InterviewBoardFilters): Promise<InterviewBoardColumn[]> {
+  const p = new URLSearchParams();
+  p.set("stage", "interview");
+  p.set("interviewKanbanOnly", "true");
+  p.set("limit", "200");
+  if (filters.search.trim()) p.set("search", filters.search.trim());
+  if (filters.program) p.set("program", filters.program);
+  p.set("scope", filters.scope);
+  const rows = await apiFetch<Record<string, unknown>[]>(`/commission/applications?${p.toString()}`);
+  const cards = rows.map(mapApiRowToInterviewCard);
+  return buildInterviewColumns(cards);
+}
+
 export async function moveApplicationToNextStage(applicationId: string, reasonComment?: string): Promise<void> {
   await apiFetch(`/commission/applications/${applicationId}/stage/advance`, {
     method: "POST",
@@ -244,7 +261,8 @@ export async function getCommissionSidebarPanel(
   applicationId: string,
   tab: string,
 ): Promise<CommissionSidebarPanelView> {
-  const queryTab = _TAB_TO_QUERY[tab] ?? "personal";
+  const queryTab =
+    tab === "ai_interview" ? "ai_interview" : (_TAB_TO_QUERY[tab] ?? "personal");
   return await apiFetch<CommissionSidebarPanelView>(
     `/commission/applications/${applicationId}/sidebar?tab=${encodeURIComponent(queryTab)}`,
   );
@@ -272,5 +290,63 @@ export async function saveSectionReviewScores(
       json: { section, scores },
     },
   );
+}
+
+export async function getAiInterviewDraft(applicationId: string): Promise<AiInterviewDraftView> {
+  return await apiFetch<AiInterviewDraftView>(`/commission/applications/${applicationId}/ai-interview/draft`);
+}
+
+export async function getCommissionAiInterviewCandidateSession(
+  applicationId: string,
+): Promise<CommissionAiInterviewSessionView> {
+  return await apiFetch<CommissionAiInterviewSessionView>(
+    `/commission/applications/${applicationId}/ai-interview/candidate-session`,
+  );
+}
+
+export async function generateAiInterviewDraft(applicationId: string, force = false): Promise<AiInterviewDraftView> {
+  return await apiFetch<AiInterviewDraftView>(`/commission/applications/${applicationId}/ai-interview/generate`, {
+    method: "POST",
+    json: { force },
+  });
+}
+
+export async function patchAiInterviewDraft(
+  applicationId: string,
+  body: { revision: number; questions: Record<string, unknown>[] },
+): Promise<AiInterviewDraftView> {
+  return await apiFetch<AiInterviewDraftView>(`/commission/applications/${applicationId}/ai-interview/draft`, {
+    method: "PATCH",
+    json: body,
+  });
+}
+
+export async function approveAiInterview(applicationId: string): Promise<Record<string, unknown>> {
+  return await apiFetch<Record<string, unknown>>(`/commission/applications/${applicationId}/ai-interview/approve`, {
+    method: "POST",
+  });
+}
+
+/** Открыть файл документа в новой вкладке (inline, через blob + object URL). */
+export async function openCommissionApplicationDocumentInNewTab(
+  applicationId: string,
+  documentId: string,
+): Promise<void> {
+  const blob = await apiFetchBlob(
+    `/commission/applications/${applicationId}/documents/${documentId}/file`,
+  );
+  if (blob.size === 0) {
+    throw new Error("Пустой файл — нечего открыть.");
+  }
+  const objectUrl = URL.createObjectURL(blob);
+  // Без noopener: иначе часть браузеров даёт ERR_FILE_NOT_FOUND по blob: во вкладке с изоляцией.
+  const w = window.open(objectUrl, "_blank");
+  if (!w) {
+    URL.revokeObjectURL(objectUrl);
+    throw new Error("Не удалось открыть новую вкладку. Разрешите всплывающие окна.");
+  }
+  // Не вызываем revokeObjectURL после открытия: встроенный PDF во второй вкладке может
+  // обращаться к blob: URL ещё долго; любой отзыв до закрытия вкладки даёт Chrome ERR_FILE_NOT_FOUND (-6).
+  // Один object URL на клик — приемлемая утечка до перезагрузки страницы комиссии.
 }
 

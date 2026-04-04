@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -22,6 +23,10 @@ from invision_api.commission.domain.types import (
 )
 from invision_api.db.session import get_db
 from invision_api.models.user import User
+from invision_api.models.application import Document
+from invision_api.repositories import admissions_repository, document_repository
+from invision_api.services import candidate_stage_email_service
+from invision_api.services.storage import get_storage
 
 router = APIRouter()
 
@@ -44,11 +49,17 @@ def list_applications(
     attentionOnly: bool = False,
     program: str | None = None,
     search: str | None = None,
+    scope: str | None = None,
+    interviewKanbanOnly: bool = False,
     limit: int = 50,
     offset: int = 0,
-    _: User = Depends(require_commission_role(CommissionRole.viewer)),
+    user: User = Depends(require_commission_role(CommissionRole.viewer)),
     db: Session = Depends(get_db),
 ) -> list[dict[str, Any]]:
+    from invision_api.models.enums import ApplicationStage
+
+    mine_uid = user.id if stage == ApplicationStage.interview.value and scope == "mine" else None
+    ik = bool(interviewKanbanOnly) and stage == ApplicationStage.interview.value
     rows = commission_service.list_applications(
         db,
         stage=stage,
@@ -58,6 +69,9 @@ def list_applications(
         search=search,
         limit=min(max(limit, 1), 200),
         offset=max(offset, 0),
+        scope=scope,
+        current_user_id=mine_uid,
+        interview_kanban_only=ik,
     )
     return [r.__dict__ for r in rows]
 
@@ -91,6 +105,29 @@ def get_application_personal_info(
     return commission_personal_info_service.get_commission_application_personal_info(
         db, application_id=application_id, actor=user
     )
+
+
+@router.get("/applications/{application_id}/documents/{document_id}/file")
+def get_application_document_file(
+    application_id: UUID,
+    document_id: UUID,
+    _: User = Depends(require_commission_role(CommissionRole.viewer)),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Отдать файл заявки для просмотра в браузере (inline, без принудительного скачивания)."""
+    if not document_repository.document_belongs_to_application(db, document_id, application_id):
+        raise HTTPException(status_code=404, detail="Документ не найден")
+    doc = db.get(Document, document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Документ не найден")
+    try:
+        data = get_storage().read_bytes(doc.storage_key)
+    except (FileNotFoundError, OSError):
+        raise HTTPException(status_code=404, detail="Файл не найден в хранилище")
+    media = doc.mime_type or "application/octet-stream"
+    fname = doc.original_filename or "document"
+    cd = f"inline; filename*=UTF-8''{quote(fname, safe='')}"
+    return Response(content=data, media_type=media, headers={"Content-Disposition": cd})
 
 
 @router.get("/applications/{application_id}/test-info")
@@ -174,6 +211,10 @@ def stage_advance(
     user: User = Depends(require_commission_role(CommissionRole.reviewer)),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    app_before = admissions_repository.get_application_by_id(db, application_id)
+    if not app_before:
+        raise HTTPException(status_code=404, detail="Заявление не найдено")
+    prev_stage = app_before.current_stage
     out = commission_personal_info_service.move_application_to_next_stage(
         db,
         application_id=application_id,
@@ -181,6 +222,11 @@ def stage_advance(
         reason_comment=body.reason_comment,
     )
     db.commit()
+    app_after = admissions_repository.get_application_by_id(db, application_id)
+    if app_after and app_after.current_stage != prev_stage:
+        candidate_stage_email_service.send_stage_transition_notification(
+            application_id, prev_stage, app_after.current_stage
+        )
     return out
 
 
@@ -353,6 +399,7 @@ def post_final_decision(
         reason_comment=body.reason_comment,
     )
     db.commit()
+    candidate_stage_email_service.send_final_decision_notification(application_id, body.final_decision.value)
     return out
 
 
@@ -394,6 +441,99 @@ def post_ai_summary_run(
     )
     db.commit()
     return {"status": out.status, "detail": out.detail, "inputHash": out.input_hash}
+
+
+class AiInterviewGenerateBody(BaseModel):
+    force: bool = False
+
+
+@router.post("/applications/{application_id}/ai-interview/generate")
+def post_ai_interview_generate(
+    application_id: UUID,
+    body: AiInterviewGenerateBody | None = None,
+    user: User = Depends(require_commission_role(CommissionRole.reviewer)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from invision_api.services.ai_interview import service as ai_interview_service
+
+    force = bool(body.force) if body else False
+    out = ai_interview_service.generate_ai_interview_draft(
+        db, application_id, force=force, actor_user_id=user.id
+    )
+    db.commit()
+    return out
+
+
+@router.get("/applications/{application_id}/ai-interview/draft")
+def get_ai_interview_draft(
+    application_id: UUID,
+    _: User = Depends(require_commission_role(CommissionRole.viewer)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from invision_api.services.ai_interview import service as ai_interview_service
+
+    return ai_interview_service.get_draft_for_commission(db, application_id)
+
+
+class AiInterviewDraftPatchBody(BaseModel):
+    revision: int
+    questions: list[dict[str, Any]]
+
+
+@router.patch("/applications/{application_id}/ai-interview/draft")
+def patch_ai_interview_draft(
+    application_id: UUID,
+    body: AiInterviewDraftPatchBody,
+    user: User = Depends(require_commission_role(CommissionRole.reviewer)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from invision_api.services.ai_interview import service as ai_interview_service
+
+    out = ai_interview_service.patch_draft_questions(
+        db,
+        application_id,
+        revision=body.revision,
+        questions=body.questions,
+        actor_user_id=user.id,
+    )
+    db.commit()
+    return out
+
+
+@router.post("/applications/{application_id}/ai-interview/approve")
+def post_ai_interview_approve(
+    application_id: UUID,
+    user: User = Depends(require_commission_role(CommissionRole.reviewer)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from invision_api.repositories import admissions_repository
+    from invision_api.services.ai_interview import service as ai_interview_service
+
+    app_before = admissions_repository.get_application_by_id(db, application_id)
+    if not app_before:
+        raise HTTPException(status_code=404, detail="Заявление не найдено")
+    prev_stage = app_before.current_stage
+    out = ai_interview_service.approve_ai_interview(db, application_id, actor_user_id=user.id)
+    db.commit()
+    if out.get("alreadyApproved"):
+        return out
+    app_after = admissions_repository.get_application_by_id(db, application_id)
+    if app_after and app_after.current_stage != prev_stage:
+        candidate_stage_email_service.send_stage_transition_notification(
+            application_id, prev_stage, app_after.current_stage
+        )
+    return out
+
+
+@router.get("/applications/{application_id}/ai-interview/candidate-session")
+def get_ai_interview_candidate_session(
+    application_id: UUID,
+    _: User = Depends(require_commission_role(CommissionRole.viewer)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from invision_api.services.ai_interview import service as ai_interview_service
+
+    return ai_interview_service.build_commission_ai_interview_session_view(db, application_id)
 
 
 @router.delete("/applications/{application_id}")

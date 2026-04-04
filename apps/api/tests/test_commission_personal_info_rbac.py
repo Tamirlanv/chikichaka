@@ -36,9 +36,24 @@ def test_actions_for_viewer_reviewer_and_admin(db: Session, factory):
     reviewer_actions = resolve_commission_actions(db, reviewer, can_advance_stage=True)
     admin_actions = resolve_commission_actions(db, admin_user, can_advance_stage=True)
 
-    assert viewer_actions == {"canComment": False, "canMoveForward": False}
-    assert reviewer_actions == {"canComment": True, "canMoveForward": True}
-    assert admin_actions == {"canComment": True, "canMoveForward": True}
+    assert viewer_actions == {
+        "canComment": False,
+        "canMoveForward": False,
+        "canApproveAiInterview": False,
+        "canGenerateAiInterview": False,
+    }
+    assert reviewer_actions == {
+        "canComment": True,
+        "canMoveForward": True,
+        "canApproveAiInterview": False,
+        "canGenerateAiInterview": False,
+    }
+    assert admin_actions == {
+        "canComment": True,
+        "canMoveForward": True,
+        "canApproveAiInterview": False,
+        "canGenerateAiInterview": False,
+    }
 
 
 def test_personal_info_opens_on_any_post_submit_stage(db: Session, factory):

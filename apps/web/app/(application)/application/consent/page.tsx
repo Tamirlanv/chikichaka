@@ -182,7 +182,7 @@ export default function ConsentPage() {
           {isSubmitting ? "Сохранение…" : "Сохранить"}
         </button>
         <Link className="btn" href="/application/personal">
-          Далее
+          Продолжить
         </Link>
       </div>
     </form>

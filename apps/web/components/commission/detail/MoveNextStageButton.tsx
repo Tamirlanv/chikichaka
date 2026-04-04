@@ -32,24 +32,8 @@ export function MoveNextStageButton({ applicationId, canMoveForward }: Props) {
 
   return (
     <div style={{ display: "grid", gap: 10, justifyItems: "center", paddingTop: 12 }}>
-      <button
-        type="button"
-        onClick={onMove}
-        disabled={isPending}
-        style={{
-          background: "#98da00",
-          color: "#fff",
-          border: "none",
-          borderRadius: 8,
-          padding: "12px 24px",
-          fontSize: 14,
-          letterSpacing: "-0.42px",
-          lineHeight: "14px",
-          cursor: isPending ? "not-allowed" : "pointer",
-          opacity: isPending ? 0.6 : 1,
-        }}
-      >
-        {isPending ? "Выполняется..." : "Далее"}
+      <button type="button" className="btn" onClick={onMove} disabled={isPending}>
+        {isPending ? "Выполняется..." : "Продолжить"}
       </button>
       {error ? <p style={{ margin: 0, fontSize: 13, color: "#e53935" }}>{error}</p> : null}
     </div>

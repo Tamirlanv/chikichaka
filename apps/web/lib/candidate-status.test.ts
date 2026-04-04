@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { getLatestCandidateVisibleNote, isDataVerificationStage, type CandidateApplicationStatus } from "./candidate-status";
+import {
+  getLatestCandidateVisibleNote,
+  isApplicationReviewStage,
+  isDataVerificationStage,
+  type CandidateApplicationStatus,
+} from "./candidate-status";
 
 function buildStatus(overrides: Partial<CandidateApplicationStatus> = {}): CandidateApplicationStatus {
   return {
@@ -20,6 +25,11 @@ describe("candidate status helpers", () => {
   it("detects data verification stage", () => {
     expect(isDataVerificationStage(buildStatus({ current_stage: "initial_screening" }))).toBe(true);
     expect(isDataVerificationStage(buildStatus({ current_stage: "application" }))).toBe(false);
+  });
+
+  it("detects application review stage", () => {
+    expect(isApplicationReviewStage(buildStatus({ current_stage: "application_review" }))).toBe(true);
+    expect(isApplicationReviewStage(buildStatus({ current_stage: "initial_screening" }))).toBe(false);
   });
 
   it("returns latest non-empty candidate visible note", () => {

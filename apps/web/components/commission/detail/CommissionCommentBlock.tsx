@@ -5,6 +5,51 @@ import { useRouter } from "next/navigation";
 import { createCommissionComment } from "@/lib/commission/query";
 import type { CommissionApplicationPersonalInfoView } from "@/lib/commission/types";
 
+const MONTHS_GEN = [
+  "января",
+  "февраля",
+  "марта",
+  "апреля",
+  "мая",
+  "июня",
+  "июля",
+  "августа",
+  "сентября",
+  "октября",
+  "ноября",
+  "декабря",
+] as const;
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** Локальное время: сегодня 01:32 · вчера · 3 апреля · 27 марта 2025 */
+function formatCommentTimestamp(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startComment = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((startToday.getTime() - startComment.getTime()) / (24 * 60 * 60 * 1000));
+
+  if (diffDays === 0) {
+    return `сегодня ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  }
+  if (diffDays === 1) {
+    return "вчера";
+  }
+
+  const day = d.getDate();
+  const month = MONTHS_GEN[d.getMonth()];
+  if (d.getFullYear() === now.getFullYear()) {
+    return `${day} ${month}`;
+  }
+  return `${day} ${month} ${d.getFullYear()}`;
+}
+
 type Props = {
   applicationId: string;
   comments: CommissionApplicationPersonalInfoView["comments"];
@@ -40,7 +85,7 @@ export function CommissionCommentBlock({ applicationId, comments, canComment, em
       </h3>
       {canComment ? (
         <div style={{ display: "grid", gap: 8 }}>
-          <p style={{ margin: 0, fontSize: 14, color: "#626262", letterSpacing: "-0.42px" }}>
+          <p style={{ margin: 0, fontSize: 14, fontWeight: 350, color: "#626262", letterSpacing: "-0.42px" }}>
             Хотите что-то отметить?
           </p>
           <div
@@ -61,6 +106,7 @@ export function CommissionCommentBlock({ applicationId, comments, canComment, em
                 outline: "none",
                 padding: "12px 16px",
                 fontSize: 14,
+                fontWeight: 350,
                 fontFamily: "Inter, sans-serif",
                 color: "#262626",
                 resize: "vertical",
@@ -68,39 +114,31 @@ export function CommissionCommentBlock({ applicationId, comments, canComment, em
               }}
             />
           </div>
-          <div>
+          <div style={{ width: "100%" }}>
             <button
               type="button"
+              className="btn"
+              style={{ width: "100%", boxSizing: "border-box" }}
               onClick={onSubmit}
               disabled={isPending || !text.trim()}
-              style={{
-                background: "#98da00",
-                color: "#fff",
-                border: "none",
-                borderRadius: 8,
-                padding: "10px 20px",
-                fontSize: 14,
-                cursor: isPending || !text.trim() ? "not-allowed" : "pointer",
-                opacity: isPending || !text.trim() ? 0.5 : 1,
-              }}
             >
               {isPending ? "Сохранение..." : "Добавить"}
             </button>
           </div>
         </div>
       ) : (
-        <p style={{ margin: 0, fontSize: 14, color: "#626262" }}>
+        <p style={{ margin: 0, fontSize: 14, fontWeight: 350, color: "#626262" }}>
           Комментирование недоступно.
         </p>
       )}
-      {error ? <p style={{ margin: 0, fontSize: 13, color: "#e53935" }}>{error}</p> : null}
+      {error ? <p style={{ margin: 0, fontSize: 13, fontWeight: 350, color: "#e53935" }}>{error}</p> : null}
       {comments.length > 0 ? (
         <div style={{ display: "grid", gap: 10 }}>
           {comments.map((comment) => (
             <article key={comment.id} style={{ borderTop: "1px solid #e1e1e1", paddingTop: 10 }}>
-              <p style={{ margin: 0, fontSize: 14, color: "#262626" }}>{comment.text}</p>
-              <p style={{ margin: "4px 0 0", fontSize: 12, color: "#626262" }}>
-                {comment.authorName} · {comment.createdAt ?? "—"}
+              <p style={{ margin: 0, fontSize: 14, fontWeight: 350, color: "#262626" }}>{comment.text}</p>
+              <p style={{ margin: "4px 0 0", fontSize: 12, fontWeight: 350, color: "#626262" }}>
+                {comment.authorName} · {formatCommentTimestamp(comment.createdAt)}
               </p>
             </article>
           ))}

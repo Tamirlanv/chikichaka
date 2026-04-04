@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from invision_api.core.config import get_settings
 from invision_api.models.application import Application, ApplicationStageHistory
 from invision_api.models.enums import ApplicationStage, ApplicationState
 from invision_api.services import audit_log_service
@@ -32,6 +33,9 @@ class TransitionContext:
     actor_type: str
     candidate_visible_note: str | None = None
     internal_note: str | None = None
+    # Only for TransitionName.review_complete: skip approved AI set check (break-glass).
+    # Still rejected when environment=production or when AI_INTERVIEW_ALLOW_INTERNAL_TRANSITION_BYPASS is false.
+    allow_review_complete_without_approved_ai_interview: bool = False
 
 
 def _close_open_history(db: Session, application_id: UUID, now: datetime) -> None:
@@ -125,6 +129,22 @@ def apply_transition(db: Session, app: Application, ctx: TransitionContext) -> A
         case TransitionName.review_complete:
             if app.current_stage != ApplicationStage.application_review.value:
                 raise ValueError("review_complete only from application_review")
+            if ctx.allow_review_complete_without_approved_ai_interview:
+                settings = get_settings()
+                if settings.environment == "production":
+                    raise ValueError(
+                        "review_complete without an approved AI interview set is not allowed in production"
+                    )
+                if not settings.ai_interview_allow_internal_transition_bypass:
+                    raise ValueError(
+                        "review_complete bypass requires AI_INTERVIEW_ALLOW_INTERNAL_TRANSITION_BYPASS=true"
+                    )
+            else:
+                from invision_api.services.ai_interview.service import (
+                    assert_approved_ai_interview_for_internal_transition,
+                )
+
+                assert_approved_ai_interview_for_internal_transition(db, app.id)
             prev_stage = app.current_stage
             _close_open_history(db, app.id, now)
             app.current_stage = ApplicationStage.interview.value
