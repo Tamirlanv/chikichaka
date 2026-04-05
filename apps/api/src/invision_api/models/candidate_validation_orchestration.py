@@ -22,7 +22,7 @@ class CandidateValidationRun(Base, UUIDPrimaryKeyMixin):
     application_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"), nullable=False
     )
-    overall_status: Mapped[str] = mapped_column(String(32), nullable=False, default="processing")
+    overall_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     warnings: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     errors: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     explainability: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)

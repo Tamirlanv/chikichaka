@@ -1,31 +1,79 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import type { CommissionBoardMetrics } from "@/lib/commission/types";
+
+const cardStyle: CSSProperties = {
+  position: "relative",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: 8,
+  width: 160,
+  minWidth: 160,
+  flex: "0 0 auto",
+  padding: "14px 20px",
+  borderRadius: 14,
+  boxSizing: "border-box",
+};
+
+const labelStyle: React.CSSProperties = {
+  margin: 0,
+  width: "100%",
+  fontSize: 16,
+  fontWeight: 400,
+  lineHeight: "16px",
+  color: "#626262",
+  letterSpacing: "-0.48px",
+  fontFamily: "var(--font-inter, Inter, system-ui, sans-serif)",
+};
+
+const valueStyle: React.CSSProperties = {
+  margin: 0,
+  width: "100%",
+  fontSize: 24,
+  fontWeight: 600,
+  lineHeight: "24px",
+  color: "#98DA00",
+  letterSpacing: "-0.72px",
+  fontFamily: "var(--font-inter, Inter, system-ui, sans-serif)",
+};
 
 export function MetricsRow({ metrics }: { metrics: CommissionBoardMetrics }) {
   const items = [
     { label: "Всего заявок", value: metrics.totalApplications },
     { label: "За сегодня", value: metrics.todayApplications },
-    { label: "Требуют внимания", value: metrics.needsAttention },
-    { label: "AI рекомендация", value: metrics.aiRecommended },
+    { label: "Foundation", value: metrics.foundationApplications },
+    { label: "Бакалавриат", value: metrics.bachelorApplications },
   ];
+
   return (
-    <section style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))" }}>
+    <section
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 8,
+        alignItems: "stretch",
+        width: "100%",
+        minWidth: 0,
+      }}
+    >
       {items.map((i) => (
-        <article
-          key={i.label}
-          className="card"
-          style={{ padding: 20, borderRadius: 16, border: "1px solid #f1f1f1", boxShadow: "none" }}
-        >
-          <p style={{ margin: 0, fontSize: 20, fontWeight: 550, color: "#262626" }}>
-            {i.label}
-          </p>
-          <p style={{ margin: "10px 0 0", fontSize: 42, lineHeight: "42px", fontWeight: 600, color: "#98da00" }}>
-            {i.value}
-          </p>
+        <article key={i.label} style={cardStyle}>
+          <span
+            aria-hidden
+            style={{
+              position: "absolute",
+              inset: 0,
+              border: "1px solid #e1e1e1",
+              borderRadius: 14,
+              pointerEvents: "none",
+            }}
+          />
+          <p style={labelStyle}>{i.label}</p>
+          <p style={valueStyle}>{i.value}</p>
         </article>
       ))}
     </section>
   );
 }
-

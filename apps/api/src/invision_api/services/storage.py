@@ -1,7 +1,13 @@
-import os
+import logging
 import uuid
 from pathlib import Path
 from typing import Protocol
+
+logger = logging.getLogger(__name__)
+
+# Pre-monorepo-anchor uploads lived under apps/api/data/uploads when UPLOAD_ROOT was cwd-relative.
+# Kept for read/delete so existing blobs remain reachable after UPLOAD_ROOT resolves to repo data/uploads.
+_LEGACY_APPS_API_UPLOADS = Path(__file__).resolve().parents[3] / "data" / "uploads"
 
 
 class StorageBackend(Protocol):
@@ -37,12 +43,30 @@ class LocalStorageBackend:
 
     def read_bytes(self, storage_key: str) -> bytes:
         """Load file contents."""
-        return self.absolute_path(storage_key).read_bytes()
+        primary = self.absolute_path(storage_key)
+        try:
+            return primary.read_bytes()
+        except FileNotFoundError:
+            legacy = _LEGACY_APPS_API_UPLOADS / storage_key.replace("\\", "/")
+            if legacy.is_file():
+                return legacy.read_bytes()
+            logger.error(
+                "storage_read_failed storage_key=%s primary=%s legacy=%s legacy_dir_exists=%s",
+                storage_key,
+                primary,
+                legacy,
+                _LEGACY_APPS_API_UPLOADS.is_dir(),
+            )
+            raise
 
     def delete(self, storage_key: str) -> None:
         p = self.absolute_path(storage_key)
         if p.is_file():
             p.unlink()
+            return
+        legacy = _LEGACY_APPS_API_UPLOADS / storage_key.replace("\\", "/")
+        if legacy.is_file():
+            legacy.unlink()
 
 
 def get_storage() -> LocalStorageBackend:

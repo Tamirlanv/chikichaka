@@ -24,5 +24,21 @@ describe("validateCertificateImage", () => {
     expect(out.documentType).toBe("ielts");
     expect(out.processingStatus).toBe("processed");
     expect(out.thresholdChecks.ieltsMinPassed).toBe(true);
+    expect(out.extractedFields.targetFieldFound).toBe(true);
+    expect(out.extractedFields.targetFieldType).toBe("ielts_overall_band");
+  });
+
+  it("infers ielts from declaration for additional document when only english proof is declared", async () => {
+    const out = await validateCertificateImage({
+      plainText:
+        "IELTS Test Report Form\nBritish Council\nOverall Band Score 6.0\nListening 6.0 Reading 6.5 Writing 6.0 Speaking 6.0",
+      documentRole: "additional",
+      englishProofKind: "ielts_6",
+      certificateProofKind: null,
+      skipPersistence: true
+    });
+    expect(out.documentType).toBe("ielts");
+    expect(out.extractedFields.totalScore).toBe(6.0);
+    expect(out.processingStatus).toBe("processed");
   });
 });

@@ -4,6 +4,7 @@ import {
   getLatestCandidateVisibleNote,
   isApplicationReviewStage,
   isDataVerificationStage,
+  requiresRedirectFromInterviewRoute,
   type CandidateApplicationStatus,
 } from "./candidate-status";
 
@@ -53,5 +54,17 @@ describe("candidate status helpers", () => {
       ],
     });
     expect(getLatestCandidateVisibleNote(status)).toBe("Актуальная заметка");
+  });
+
+  it("requiresRedirectFromInterviewRoute when on interview URL but stage is not interview", () => {
+    const s = buildStatus({ current_stage: "application" });
+    expect(requiresRedirectFromInterviewRoute("/application/interview", s)).toBe(true);
+    expect(requiresRedirectFromInterviewRoute("/application/personal", s)).toBe(false);
+    expect(requiresRedirectFromInterviewRoute("/application/interview", null)).toBe(false);
+  });
+
+  it("does not require redirect when on interview URL and stage is interview", () => {
+    const s = buildStatus({ current_stage: "interview" });
+    expect(requiresRedirectFromInterviewRoute("/application/interview", s)).toBe(false);
   });
 });

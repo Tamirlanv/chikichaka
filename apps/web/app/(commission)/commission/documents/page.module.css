@@ -1,0 +1,411 @@
+.titleRow {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #262626;
+  letter-spacing: -0.6px;
+  line-height: 28px;
+}
+
+.filterPillsScroll {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  margin-bottom: -4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.filterPillsScroll::-webkit-scrollbar {
+  height: 4px;
+}
+
+.filterPillsScroll::-webkit-scrollbar-thumb {
+  background: #e1e1e1;
+  border-radius: 4px;
+}
+
+.splitWrap {
+  margin-top: 8px;
+  width: 100%;
+  max-width: 1200px;
+  box-sizing: border-box;
+}
+
+.splitCard {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  min-height: 480px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.panelLeft {
+  flex: 1;
+  min-width: 0;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.panelRight {
+  flex: 1;
+  min-width: 280px;
+  max-width: 540px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.divider {
+  width: 1px;
+  flex-shrink: 0;
+  background: rgba(38, 38, 38, 0.1);
+  align-self: stretch;
+  min-height: 200px;
+}
+
+.emptyCenter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  padding: 24px;
+}
+
+.emptyIcon {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  color: #262626;
+  letter-spacing: -0.6px;
+  line-height: 20px;
+}
+
+.emptyHint {
+  margin: 0;
+  font-size: 14px;
+  color: #626262;
+  max-width: 360px;
+  line-height: 1.45;
+}
+
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+}
+
+.searchInputWrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.searchInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 40px 12px 16px;
+  border: 1px solid rgba(38, 38, 38, 0.3);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 350;
+  letter-spacing: -0.42px;
+  line-height: 14px;
+  color: #262626;
+  font-family: var(--font-inter, Inter, system-ui, sans-serif);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.searchInput:focus,
+.searchInput:focus-visible {
+  outline: none;
+  border-color: #98da00;
+  box-shadow: 0 0 0 3px rgba(152, 218, 0, 0.12);
+}
+
+.searchInput::placeholder {
+  color: rgba(38, 38, 38, 0.3);
+}
+
+.searchIcon {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  opacity: 0.35;
+}
+
+.rightHint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 12px;
+  color: #626262;
+  text-align: center;
+  letter-spacing: -0.36px;
+  padding: 0 8px;
+}
+
+.resultsList {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  max-height: 520px;
+  overflow-y: auto;
+  padding: 2px;
+  box-sizing: border-box;
+}
+
+.resultCard {
+  width: 100%;
+  min-width: 0;
+  min-height: 88px;
+  box-sizing: border-box;
+  border-radius: 16px;
+  padding: 16px 24px;
+  background: #fff;
+  cursor: pointer;
+  font-family: var(--font-inter, Inter, system-ui, sans-serif);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 8px;
+  text-align: left;
+  overflow: visible;
+  transition:
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.resultCardSelected {
+  background: rgba(152, 218, 0, 0.12);
+  box-shadow: inset 0 0 0 2px #98da00;
+}
+
+.resultName {
+  display: block;
+  margin: 0;
+  max-width: 100%;
+  font-size: 16px;
+  font-weight: 450;
+  color: #262626;
+  letter-spacing: -0.48px;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.resultRow {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 350;
+  color: #626262;
+  letter-spacing: -0.42px;
+  line-height: 14px;
+}
+
+.resultColLeft,
+.resultColRight {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.resultColRight {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.docList {
+  width: 100%;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.docListAfterVideo {
+  margin-top: 12px;
+}
+
+.docCard {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 16px;
+  background: #fff;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.docCardNeutral {
+  border: 1px solid #f1f1f1;
+}
+
+.docCardGreen {
+  border: 2px solid #98da00;
+}
+
+.docCardRed {
+  border: 2px solid #dc2626;
+}
+
+.docCardBody {
+  min-width: 0;
+}
+
+.docCardTitle {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 550;
+  color: #262626;
+  letter-spacing: -0.48px;
+  line-height: 20px;
+}
+
+.docCardSubtitleRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.docCardSubtitle {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 350;
+  color: #626262;
+  letter-spacing: -0.39px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.docCardSubtitleAlone {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 350;
+  color: #626262;
+  letter-spacing: -0.39px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.docCardCopy {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 6px;
+  line-height: 0;
+}
+
+.docCardCopy:hover {
+  background: #f5f5f5;
+}
+
+.docCardActions {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  margin-top: 16px;
+  width: 100%;
+}
+
+.docBtnOpen {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid #e1e1e1;
+  background: #fff;
+  color: #262626;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 350;
+  letter-spacing: -0.42px;
+  line-height: 14px;
+  cursor: pointer;
+  font-family: var(--font-inter, Inter, system-ui, sans-serif);
+}
+
+.docBtnOpen:hover {
+  background: #fafafa;
+}
+
+.docBtnDownload {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid #262626;
+  background: #262626;
+  color: #fff;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 350;
+  letter-spacing: -0.42px;
+  line-height: 14px;
+  cursor: pointer;
+  font-family: var(--font-inter, Inter, system-ui, sans-serif);
+}
+
+.docBtnDownload:hover {
+  background: #3a3a3a;
+  border-color: #3a3a3a;
+}
+
+.loadingText {
+  font-size: 14px;
+  color: #626262;
+  margin: 0;
+}
+
+.errorText {
+  font-size: 14px;
+  color: #dc2626;
+  margin: 0;
+}

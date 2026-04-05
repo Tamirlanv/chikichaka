@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ApiError, apiFetch, apiFetchCached, bustApiCache } from "@/lib/api-client";
 import { getApplicationCompletionSummary, type ReviewSectionState } from "@/lib/application-completion";
@@ -8,9 +8,11 @@ import {
   isApplicationReviewStage,
   isDataVerificationStage,
   isInterviewStage,
+  requiresRedirectFromInterviewRoute,
   type CandidateApplicationStatus,
 } from "@/lib/candidate-status";
 import { buildApplicationReviewCopy } from "@/lib/application-review-copy";
+import { postCandidateActivityEventSafe } from "@/lib/candidate-activity";
 import { buildDataVerificationCopy } from "@/lib/data-verification-copy";
 import { clearAllDrafts } from "@/lib/draft-storage";
 import { ApplicationHeader } from "./ApplicationHeader";
@@ -23,7 +25,7 @@ import { SubmitConfirmationModal, type ModalDocument } from "./SubmitConfirmatio
 import styles from "./application-shell.module.css";
 
 const ME_TTL_MS = 5 * 60 * 1000;
-const STATUS_TTL_MS = 2 * 60 * 1000;
+const ACTIVITY_PING_INTERVAL_MS = 60_000;
 
 type ReviewData = {
   application_id: string;
@@ -72,6 +74,7 @@ export function ApplicationShell({ children }: Props) {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [resetKey, setResetKey] = useState(0);
+  const lastActivityPingAtRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -113,7 +116,8 @@ export function ApplicationShell({ children }: Props) {
     setStatusLoading(true);
     setStatusError(null);
     try {
-      const status = await apiFetchCached<CandidateApplicationStatus>("/candidates/me/application/status", STATUS_TTL_MS);
+      // Uncached: same URL must reflect server after commission archive / new application id (cache would serve stale stage).
+      const status = await apiFetch<CandidateApplicationStatus>("/candidates/me/application/status");
       setStatusData(status);
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
@@ -122,6 +126,7 @@ export function ApplicationShell({ children }: Props) {
         bustApiCache("/candidates/me/application");
         bustApiCache("/candidates/me/application/status");
         bustApiCache("/candidates/me/application/review");
+        bustApiCache("/candidates/me/application/ai-interview");
         clearAllDrafts();
         setStatusData(null);
       } else {
@@ -138,6 +143,34 @@ export function ApplicationShell({ children }: Props) {
   }, [loadStatus]);
 
   useEffect(() => {
+    const emitInteractionPing = () => {
+      const now = Date.now();
+      if (now - lastActivityPingAtRef.current < ACTIVITY_PING_INTERVAL_MS) return;
+      lastActivityPingAtRef.current = now;
+      void postCandidateActivityEventSafe({
+        eventType: "platform_interaction_ping",
+        occurredAt: new Date(now).toISOString(),
+        metadata: { source: "application_shell" },
+      });
+    };
+
+    const onInteraction = () => {
+      emitInteractionPing();
+    };
+
+    const events: Array<keyof WindowEventMap> = ["click", "input", "keydown", "change", "submit"];
+    for (const eventName of events) {
+      window.addEventListener(eventName, onInteraction, true);
+    }
+
+    return () => {
+      for (const eventName of events) {
+        window.removeEventListener(eventName, onInteraction, true);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const id = statusData?.application_id;
     if (!id || typeof window === "undefined") return;
     const key = "invision:lastApplicationId";
@@ -147,12 +180,15 @@ export function ApplicationShell({ children }: Props) {
       bustApiCache("/candidates/me/application");
       bustApiCache("/candidates/me/application/status");
       bustApiCache("/candidates/me/application/review");
+      bustApiCache("/candidates/me/application/ai-interview");
       setResetKey((k) => k + 1);
+      void loadStatus();
     }
     sessionStorage.setItem(key, id);
-  }, [statusData]);
+  }, [statusData, loadStatus]);
 
   const inInterviewStage = isInterviewStage(statusData);
+  const redirectInterviewRouteToForm = requiresRedirectFromInterviewRoute(pathname, statusData);
 
   useEffect(() => {
     if (statusLoading || !statusData) return;
@@ -161,6 +197,12 @@ export function ApplicationShell({ children }: Props) {
     if (pathname.startsWith("/application/interview")) return;
     router.replace("/application/interview");
   }, [statusLoading, statusData, inInterviewStage, pathname, router]);
+
+  useEffect(() => {
+    if (statusLoading || !redirectInterviewRouteToForm) return;
+    bustApiCache("/candidates/me/application/ai-interview");
+    router.replace("/application");
+  }, [statusLoading, redirectInterviewRouteToForm, router]);
 
   function handleOpenModal() {
     setReview(null);
@@ -179,6 +221,7 @@ export function ApplicationShell({ children }: Props) {
     bustApiCache("/candidates/me/application");
     bustApiCache("/candidates/me/application/review");
     bustApiCache("/candidates/me/application/status");
+    bustApiCache("/candidates/me/application/ai-interview");
     bustApiCache("/auth/me");
     setReview(null);
     setResetKey((k) => k + 1);
@@ -189,6 +232,7 @@ export function ApplicationShell({ children }: Props) {
     bustApiCache("/candidates/me");
     bustApiCache("/candidates/me/application/review");
     bustApiCache("/candidates/me/application/status");
+    bustApiCache("/candidates/me/application/ai-interview");
     bustApiCache("/auth/me");
     clearAllDrafts();
     await loadReview();
@@ -201,6 +245,7 @@ export function ApplicationShell({ children }: Props) {
     bustApiCache("/candidates/me");
     bustApiCache("/candidates/me/application/review");
     bustApiCache("/candidates/me/application/status");
+    bustApiCache("/candidates/me/application/ai-interview");
     await loadReview();
     await loadStatus();
   }, [loadReview, loadStatus]);
@@ -259,6 +304,8 @@ export function ApplicationShell({ children }: Props) {
         <main className={isInterviewChatRoute ? `${styles.main} ${styles.mainInterview}` : styles.main}>
           {statusLoading && !statusData ? (
             <p className="muted">Загрузка этапа...</p>
+          ) : redirectInterviewRouteToForm ? (
+            <p className="muted">Переход к анкете…</p>
           ) : inDataVerificationStage ? (
             <DataVerificationView status={statusData} onRetrySubmit={handleRetrySubmit} />
           ) : inApplicationReviewStage ? (

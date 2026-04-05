@@ -63,7 +63,7 @@ export function MotivationInstructionModal({ open, onClose }: Props) {
           личный стиль, искренность и конкретные примеры из опыта.
         </p>
 
-        <div className={styles.footer}>
+        <div className={`${styles.footer} modal-actions modal-actions--single`}>
           <button type="button" className="btn secondary" onClick={onClose}>
             Закрыть
           </button>

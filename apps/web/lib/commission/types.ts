@@ -1,4 +1,15 @@
 export type CommissionRange = "day" | "week" | "month" | "year";
+export type CommissionEngagementSort = "risk" | "freshness" | "engagement";
+export type CommissionHistoryMode = "events" | "archive";
+export type CommissionHistoryEventFilter =
+  | "all"
+  | "commission"
+  | "system"
+  | "candidates"
+  | "stage"
+  | "interview"
+  | "decision";
+export type CommissionHistorySort = "newest" | "oldest";
 
 export type CommissionRole = "viewer" | "reviewer" | "admin";
 
@@ -33,6 +44,18 @@ export type CommissionBoardApplicationCard = {
   aiRecommendation: AIRecommendation | null;
   aiConfidence: number | null;
   visualState: CardVisualState;
+  /** ISO timestamp when candidate finished AI interview (API: ai_interview_completed_at_iso). */
+  aiInterviewCompletedAtIso: string | null;
+  /** Path + motivation + achievements: all manual scores set (one reviewer). */
+  rubricThreeSectionsComplete: boolean;
+  /** Sum of manual scores across required stage-2 sections for the completed reviewer set. */
+  applicationReviewTotalScore?: number | null;
+  /** Latest data-check run aggregate status when card is on «Проверка данных» (API: data_check_run_status). */
+  dataCheckRunStatus: string | null;
+  /** AI summary present and data-check pipeline ready. */
+  stageOneDataReady: boolean;
+  /** Commission interview scheduled (API: interview_scheduled_at_iso). */
+  interviewScheduledAtIso: string | null;
 };
 
 export type CommissionBoardColumn = {
@@ -44,8 +67,8 @@ export type CommissionBoardColumn = {
 export type CommissionBoardMetrics = {
   totalApplications: number;
   todayApplications: number;
-  needsAttention: number;
-  aiRecommended: number;
+  foundationApplications: number;
+  bachelorApplications: number;
 };
 
 export type CommissionBoardFilters = {
@@ -58,6 +81,76 @@ export type CommissionBoardResponse = {
   filters: CommissionBoardFilters;
   metrics: CommissionBoardMetrics;
   columns: CommissionBoardColumn[];
+};
+
+export type CommissionEngagementLevel = "High" | "Medium" | "Low";
+export type CommissionRiskLevel = "High" | "Medium" | "Low";
+
+export type CommissionEngagementCard = {
+  applicationId: string;
+  candidateFullName: string;
+  lastActivityAtIso: string | null;
+  lastActivityHumanized: string;
+  activeTimeHumanized: string | null;
+  engagementLevel: CommissionEngagementLevel;
+  riskLevel: CommissionRiskLevel;
+  program: string | null;
+  currentStage: string | null;
+};
+
+export type CommissionEngagementColumn = {
+  id: "high_risk" | "medium_risk" | "low_risk";
+  title: string;
+  cards: CommissionEngagementCard[];
+};
+
+export type CommissionEngagementResponse = {
+  filters: {
+    search: string;
+    program: string | null;
+    sort: CommissionEngagementSort;
+  };
+  totals: {
+    total: number;
+    highRisk: number;
+    mediumRisk: number;
+    lowRisk: number;
+  };
+  columns: CommissionEngagementColumn[];
+};
+
+export type CommissionHistoryEvent = {
+  id: string;
+  applicationId: string;
+  candidateFullName: string;
+  program: string | null;
+  currentStage: string | null;
+  eventType: string;
+  eventCategory: "commission" | "system" | "candidate";
+  description: string;
+  initiator: string;
+  timestamp: string;
+};
+
+export type CommissionHistoryResponse = {
+  items: CommissionHistoryEvent[];
+  total: number;
+  filters: {
+    search: string;
+    program: string | null;
+    eventType: CommissionHistoryEventFilter;
+    sort: CommissionHistorySort;
+  };
+};
+
+export type CommissionApplicationHistoryResponse = {
+  applicationId: string;
+  items: CommissionHistoryEvent[];
+  total: number;
+  filters: {
+    eventType: CommissionHistoryEventFilter;
+    sort: CommissionHistorySort;
+  };
 };
 
 export type CommissionUpdatesResponse = {
@@ -171,6 +264,7 @@ export type CommissionApplicationPersonalInfoView = {
   applicationId: string;
   isArchived?: boolean;
   readOnly?: boolean;
+  readOnlyReason?: string | null;
   candidateSummary: {
     fullName: string;
     program: string | null;
@@ -223,9 +317,15 @@ export type CommissionApplicationPersonalInfoView = {
       fileSize: string | null;
       fileUrl: string | null;
       fileRef: string | null;
+      /** gray | green | red — граница карточки в списке документов комиссии */
+      borderTone?: "gray" | "green" | "red";
     }>;
     videoPresentation: {
       url: string;
+      borderTone?: "gray" | "green";
+      summary?: string;
+      duration?: string | null;
+      candidateVisibility?: string | null;
     } | null;
   };
   motivation: {
@@ -319,7 +419,7 @@ export type CommissionApplicationTestInfoView = {
   } | null;
 };
 
-/** Sidebar line: plain string or scored line with tone (commission validation «Документы»). */
+/** Строка сайдбара: текст или строка с тоном (валидация документов). */
 export type SidebarSectionItem =
   | string
   | {
@@ -368,9 +468,13 @@ export type ReviewScoreBlock = {
   items: ReviewScoreItem[];
   totalScore: number;
   maxTotalScore: number;
+  /** Округлённое среднее рекомендуемых подкритериев раздела (1–5). */
+  aggregateRecommendedScore?: number;
+  /** Текст пояснения сводной рекомендации (API). */
+  aggregateRecommendationExplanation?: string;
 };
 
-/** Read-only AI interview Q/A + preferred slots for commission (from GET .../ai-interview/candidate-session). */
+/** Итог AI-собеседования: краткая сводка и списки снятых/открытых пунктов. */
 export type CommissionAiInterviewResolutionSummary = {
   shortSummary: string;
   resolvedPoints: string[];
@@ -381,7 +485,61 @@ export type CommissionAiInterviewResolutionSummary = {
   promptVersion?: string;
 };
 
-/** Read-only AI interview Q/A + preferred slots for commission (from GET .../ai-interview/candidate-session). */
+export type CommissionCandidatePreferencePanel = {
+  preferredSlots: Array<{
+    date: string;
+    timeRangeCode: string;
+    timeRange: string;
+  }>;
+  preferencesSubmittedAt: string | null;
+  windowStatus: string | null;
+  windowOpenedAt: string | null;
+  windowExpiresAt: string | null;
+  remainingSeconds: number | null;
+};
+
+export type CommissionScheduledInterviewPayload = {
+  sessionId: string;
+  scheduledAt: string | null;
+  interviewMode: string | null;
+  locationOrLink: string | null;
+  scheduledByUserId: string | null;
+  reminderRequestedAt?: string | null;
+  reminderSentAt?: string | null;
+  outcomeRecordedAt?: string | null;
+};
+
+/** GET /commission/applications/:id/stage-advance-preview */
+export type StageAdvancePrimaryAction = {
+  kind: "open_application";
+  applicationId: string;
+  query: { interviewSubTab?: string };
+};
+
+export type StageAdvancePreviewResponse = {
+  allowed: boolean;
+  candidateFullName: string;
+  targetStageLabel: string;
+  transition?: string | null;
+  confirm?: {
+    title: string;
+    message: string;
+    confirmLabel: string;
+    cancelLabel: string;
+  };
+  blocked?: {
+    code: string | null;
+    message: string;
+    confirmLabel: string;
+    cancelLabel: string;
+    primaryAction: StageAdvancePrimaryAction | null;
+  };
+};
+
+/**
+ * Карточка сессии AI-собеседования для комиссии: вопросы/ответы, слоты, расписание, сводка.
+ * Источник: GET .../ai-interview/candidate-session.
+ */
 export type CommissionAiInterviewSessionView = {
   applicationId: string;
   candidateId: string;
@@ -398,7 +556,10 @@ export type CommissionAiInterviewSessionView = {
     timeRangeCode: string;
     timeRange: string;
   }>;
+  candidatePreferencePanel?: CommissionCandidatePreferencePanel;
+  commissionSchedule?: {
+    scheduledInterview: CommissionScheduledInterviewPayload | null;
+  };
   resolutionSummary: CommissionAiInterviewResolutionSummary | null;
   resolutionSummaryError: string | null;
 };
-

@@ -33,6 +33,12 @@ export type CertificateValidationResult = {
     declarationMismatch?: boolean;
     /** Which rule matched (e.g. ielts:overall_band_score_line) */
     extractionMethod?: string | null;
+    /** Whether parser found the explicit target score field for this document type */
+    targetFieldFound?: boolean;
+    /** Target field id used by parser (e.g. ielts_overall_band, ent_total_score) */
+    targetFieldType?: string | null;
+    /** Short context snippet around matched target field */
+    targetFieldEvidence?: string | null;
     /** After plausibility check */
     scorePlausible?: boolean | null;
     scoreRejectionReason?: string | null;

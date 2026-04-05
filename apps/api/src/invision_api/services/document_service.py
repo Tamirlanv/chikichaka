@@ -9,7 +9,7 @@ from invision_api.core.config import get_settings
 from invision_api.models.application import Document
 from invision_api.models.enums import DocumentType, VerificationStatus
 from invision_api.models.user import User
-from invision_api.services import application_service
+from invision_api.services import application_service, candidate_activity_service
 from invision_api.services.storage import get_storage
 
 ALLOWED_MIME: dict[str, tuple[str, ...]] = {
@@ -111,6 +111,14 @@ async def upload_document(
         application_service.recompute_social_section(db, app)
     if document_type.value in application_service.DOCUMENTS_MANIFEST_REQUIRED_TYPES:
         application_service.recompute_documents_manifest_section(db, app)
+    candidate_activity_service.record_candidate_activity_event(
+        db,
+        application_id=app.id,
+        candidate_user_id=user.id,
+        event_type="document_uploaded",
+        stage=app.current_stage,
+        metadata={"documentType": document_type.value, "mimeType": ct, "byteSize": size},
+    )
     db.commit()
     db.refresh(doc)
     return doc

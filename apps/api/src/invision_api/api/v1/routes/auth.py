@@ -95,6 +95,7 @@ def register_complete(
     db: Session = Depends(get_db),
 ) -> TokenResponse:
     user = auth_service.verify_email_by_email(db, str(body.email), body.code)
+    auth_service.seed_personal_education_program_from_registration(db, user, body.education_program)
     access, refresh, _jti = auth_service.issue_tokens(user.id)
     _set_auth_cookies(response, access, refresh)
     return TokenResponse(access_token=access, refresh_token=refresh)

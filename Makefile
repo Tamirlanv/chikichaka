@@ -7,7 +7,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help install install-frontend install-api infra frontend backend worker dev migrate init-db seed docker-up docker-down smoke smoke-services test-integration test-e2e check-invariants
+.PHONY: help install install-frontend install-api infra frontend backend worker sweep-data-check dev migrate init-db seed docker-up docker-down smoke smoke-services test-integration test-e2e check-invariants
 
 help:
 	@echo "inVision U — commands"
@@ -20,9 +20,10 @@ help:
 	@echo "  make frontend         - Next.js dev (port 3000)"
 	@echo "  make backend          - FastAPI + auto-start validation services + migrations (run make seed for DB seed)"
 	@echo "  make worker           - Redis job worker (admission_jobs queue)"
+	@echo "  make sweep-data-check - one-shot DB sweep (stale runs + SLA); use in cron if queue is always busy"
 	@echo "  make dev              - start backend + worker + frontend together (3 panes)"
 	@echo ""
-	@echo "  make migrate          - alembic upgrade head"
+	@echo "  make migrate          - alembic upgrade head (run after deploy/pull when the API adds or changes DB schema)"
 	@echo "  make init-db          - create POSTGRES_USER / POSTGRES_DB on local Postgres (if role missing)"
 	@echo "  make seed             - seed roles + internal test questions"
 	@echo ""
@@ -56,6 +57,9 @@ backend:
 
 worker:
 	@bash scripts/worker.sh
+
+sweep-data-check:
+	@bash scripts/sweep-data-check.sh
 
 dev:
 	@if command -v tmux >/dev/null 2>&1; then \

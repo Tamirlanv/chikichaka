@@ -1,0 +1,243 @@
+.videoDrawerOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0);
+  display: flex;
+  justify-content: flex-end;
+  transition: background-color 220ms ease;
+}
+
+.videoDrawerOverlayOpen {
+  background: rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+}
+
+.videoDrawerOverlayClosed {
+  background: rgba(0, 0, 0, 0);
+  pointer-events: none;
+}
+
+.videoDrawer {
+  position: relative;
+  width: min(393px, 100vw);
+  height: 100vh;
+  overflow-y: auto;
+  background: #ffffff;
+  padding: 24px;
+  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  transition:
+    transform 220ms ease,
+    opacity 220ms ease;
+}
+
+.videoDrawerOpen {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.videoDrawerClosed {
+  transform: translateX(32px);
+  opacity: 0;
+}
+
+.videoDrawerCloseBtn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid #e5e5e5;
+  background: #ffffff;
+  color: #626262;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  font-weight: 350;
+}
+
+.videoDrawerHeader {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  padding-top: 8px;
+}
+
+.videoDrawerTitle {
+  margin: 0;
+  font-size: 20px;
+  line-height: 20px;
+  letter-spacing: -0.6px;
+  color: #262626;
+  font-weight: 550;
+}
+
+.videoDrawerSubtitle {
+  margin: 0;
+  font-size: 14px;
+  line-height: 14px;
+  letter-spacing: -0.42px;
+  color: #626262;
+  font-weight: 350;
+  text-align: center;
+}
+
+.videoDrawerSection {
+  display: grid;
+  gap: 12px;
+}
+
+.videoDrawerSectionTitle {
+  margin: 0;
+  color: #626262;
+  font-size: 14px;
+  line-height: 14px;
+  letter-spacing: -0.42px;
+  font-weight: 350;
+}
+
+.videoDrawerMetaRows {
+  display: grid;
+  gap: 8px;
+}
+
+.videoDrawerMetaLine {
+  margin: 0;
+  color: #262626;
+  font-size: 14px;
+  line-height: 14px;
+  letter-spacing: -0.42px;
+  font-weight: 350;
+}
+
+.videoDrawerMetaLabel {
+  color: #626262;
+}
+
+.videoDrawerBodyText {
+  margin: 0;
+  color: #262626;
+  font-size: 14px;
+  line-height: 18px;
+  letter-spacing: -0.42px;
+  font-weight: 350;
+}
+
+.videoDrawerNotesList {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 8px;
+  color: #262626;
+  font-size: 14px;
+  line-height: 18px;
+  letter-spacing: -0.42px;
+  font-weight: 350;
+}
+
+.videoDrawerPreviewFrame {
+  width: 100%;
+  height: 200px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #262626;
+}
+
+.videoDrawerPreviewFrame iframe,
+.videoDrawerPreviewFrame video {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  background: #262626;
+}
+
+.videoDrawerPreviewFallback {
+  width: 100%;
+  min-height: 140px;
+  border-radius: 16px;
+  background: #262626;
+  color: #ffffff;
+  display: grid;
+  gap: 12px;
+  place-items: center;
+  padding: 16px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 18px;
+  letter-spacing: -0.42px;
+  font-weight: 350;
+}
+
+.videoDrawerPreviewFallback a {
+  color: #98da00;
+  text-decoration: none;
+  font-weight: 450;
+}
+
+.videoDrawerMutedText {
+  margin: 0;
+  color: #626262;
+  font-size: 14px;
+  line-height: 14px;
+  letter-spacing: -0.42px;
+  font-weight: 350;
+}
+
+.videoDrawerScoreDots {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.videoDrawerScoreDots button {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.videoDrawerScoreDots button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.videoDrawerActions {
+  display: grid;
+  gap: 8px;
+}
+
+.videoDrawerPrimaryBtn,
+.videoDrawerSecondaryBtn {
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-size: 14px;
+  line-height: 14px;
+  letter-spacing: -0.42px;
+  font-weight: 350;
+  cursor: pointer;
+}
+
+.videoDrawerPrimaryBtn {
+  border: 1px solid #262626;
+  background: #262626;
+  color: #ffffff;
+}
+
+.videoDrawerSecondaryBtn {
+  border: 1px solid #f1f1f1;
+  background: #ffffff;
+  color: #262626;
+}
+
+.videoDrawerPrimaryBtn:disabled,
+.videoDrawerSecondaryBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

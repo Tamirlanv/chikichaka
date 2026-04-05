@@ -67,6 +67,13 @@ class Application(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     locked_after_submit: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     interview_preferences_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    interview_preference_window_opened_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    interview_preference_window_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    interview_preference_window_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     candidate_profile: Mapped["CandidateProfile"] = relationship(back_populates="applications")
     section_states: Mapped[list["ApplicationSectionState"]] = relationship(
@@ -315,6 +322,10 @@ class InterviewSession(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
     follow_up_questions: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     interview_summary_draft: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reminder_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Commission recorded outcome of the live interview (required before advancing to committee decision).
+    outcome_recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     application: Mapped["Application"] = relationship(back_populates="interview_sessions")
 

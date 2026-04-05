@@ -38,7 +38,7 @@ export function InterviewToolbar({ search, scope, onSearchChange, onScopeChange 
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
             aria-label="Поиск по собеседованиям"
-            style={{ paddingRight: 40, height: 38, borderRadius: 16 }}
+            style={{ paddingRight: 40, height: 38 }}
           />
           <Image
             src="/assets/icons/material-symbols_search-rounded.svg"

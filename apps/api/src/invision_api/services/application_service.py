@@ -34,7 +34,7 @@ from invision_api.repositories.application_repository import (
     get_application_for_candidate,
     get_candidate_profile_by_user,
 )
-from invision_api.services import section_payloads
+from invision_api.services import candidate_activity_service, section_payloads
 from invision_api.services.growth_path.pipeline import process_growth_journey_save
 
 
@@ -383,6 +383,22 @@ def save_section(
     if app.state == ApplicationState.draft.value:
         app.state = ApplicationState.in_progress.value
 
+    if section_key in (SectionKey.personal, SectionKey.contact):
+        db.flush()
+        from invision_api.repositories import commission_repository
+
+        commission_repository.upsert_projection_for_application(db, app)
+
+    candidate_activity_service.record_candidate_activity_event(
+        db,
+        application_id=app.id,
+        candidate_user_id=user.id,
+        event_type="section_saved",
+        occurred_at=datetime.now(tz=UTC),
+        stage=app.current_stage,
+        metadata={"section": section_key.value, "is_complete": bool(row.is_complete)},
+    )
+
     db.commit()
     db.refresh(row)
     return row
@@ -406,7 +422,7 @@ def completion_percentage(db: Session, app: Application) -> tuple[int, list[Sect
         if not st:
             missing.append(key)
             continue
-        if key in {SectionKey.personal, SectionKey.contact}:
+        if key in {SectionKey.personal, SectionKey.contact, SectionKey.internal_test}:
             payload = st.payload if isinstance(st.payload, dict) else {}
             try:
                 validated = section_payloads.parse_and_validate_section(key, payload)
@@ -647,6 +663,14 @@ def submit_application_with_outcome(db: Session, user: User) -> dict[str, Any]:
             "submitted_at": app.submitted_at.isoformat(),
         },
     )
+    candidate_activity_service.record_candidate_activity_event(
+        db,
+        application_id=app.id,
+        candidate_user_id=user.id,
+        event_type="application_submitted",
+        occurred_at=now,
+        stage=app.current_stage,
+    )
 
     submit_outcome = {
         "submitted": True,
@@ -741,6 +765,14 @@ def reopen_application_for_resubmit(db: Session, user: User) -> Application:
             "submitted_at": None,
             "locked_after_submit": app.locked_after_submit,
         },
+    )
+    candidate_activity_service.record_candidate_activity_event(
+        db,
+        application_id=app.id,
+        candidate_user_id=user.id,
+        event_type="application_reopened",
+        occurred_at=now,
+        stage=app.current_stage,
     )
 
     db.commit()

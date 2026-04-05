@@ -10,6 +10,9 @@ from invision_api.models.user import User
 from invision_api.repositories import document_repository
 from invision_api.repositories.application_repository import get_application_for_candidate, get_candidate_profile_by_user
 from invision_api.services import application_service
+from invision_api.repositories import data_check_repository
+from invision_api.models.enums import ApplicationStage, DataCheckRunStatus, DataCheckUnitType
+from invision_api.services.data_check.status_service import compute_run_status
 
 
 STAGE_DESCRIPTIONS: dict[str, str] = {
@@ -109,6 +112,51 @@ def _recent_updates(db: Session, user_id: UUID, application_id: UUID, limit: int
     return notes[:limit]
 
 
+
+def _initial_screening_pipeline_view(db: Session, app: Application) -> dict[str, Any] | None:
+    """Honest processing / problem / success hints for candidate UI while on initial_screening."""
+    if app.current_stage != ApplicationStage.initial_screening.value:
+        return None
+    run = data_check_repository.resolve_preferred_run_for_application(db, app.id)
+    if not run:
+        return {
+            "run_status": None,
+            "processing_state": "processing",
+            "message": "Проверка данных ещё не начата или ожидает очереди.",
+        }
+    checks = data_check_repository.list_checks_for_run(db, run.id)
+    if not checks:
+        return {
+            "run_status": None,
+            "processing_state": "processing",
+            "message": "Проверка данных ещё не начата или ожидает очереди.",
+        }
+    status_map: dict[DataCheckUnitType, str] = {}
+    for c in checks:
+        try:
+            status_map[DataCheckUnitType(c.check_type)] = c.status
+        except ValueError:
+            continue
+    rs = compute_run_status(status_map).status
+    if rs in (DataCheckRunStatus.pending.value, DataCheckRunStatus.running.value):
+        return {
+            "run_status": rs,
+            "processing_state": "processing",
+            "message": "Идёт автоматическая проверка материалов и документов.",
+        }
+    if rs == DataCheckRunStatus.ready.value:
+        return {
+            "run_status": rs,
+            "processing_state": "success",
+            "message": "Первичная проверка данных завершена успешно. Ожидайте перехода на следующий этап.",
+        }
+    return {
+        "run_status": rs,
+        "processing_state": "problem",
+        "message": "Проверка данных завершилась с замечаниями или ошибками. Команда приёмной комиссии разберёт ситуацию.",
+    }
+
+
 def build_status(db: Session, user: User) -> dict[str, Any]:
     profile = get_candidate_profile_by_user(db, user.id)
     if not profile:
@@ -165,4 +213,5 @@ def build_status(db: Session, user: User) -> dict[str, Any]:
         },
         "stage_history": history,
         "stage_descriptions": STAGE_DESCRIPTIONS,
+        "initial_screening_pipeline": _initial_screening_pipeline_view(db, app),
     }

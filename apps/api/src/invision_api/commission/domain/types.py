@@ -107,6 +107,11 @@ class KanbanCard:
     interview_scheduled_at_iso: str | None = None
     interview_scheduled_by_user_id: UUID | None = None
     education_track: str | None = None
+    ai_interview_completed_at_iso: str | None = None
+    rubric_three_sections_complete: bool = False
+    application_review_total_score: int | None = None
+    stage_one_data_ready: bool = False
+    data_check_run_status: str | None = None  # latest CandidateValidationRun.overall_status (data_check column)
 
 
 @dataclass(frozen=True)
@@ -120,4 +125,3 @@ class AuditEvent:
     before: dict[str, Any] | None
     after: dict[str, Any] | None
     metadata: dict[str, Any] | None
-

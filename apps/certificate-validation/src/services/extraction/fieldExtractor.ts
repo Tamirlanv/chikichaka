@@ -11,6 +11,9 @@ export function extractFields(
   totalScore?: number | null;
   scoreLabel?: string | null;
   extractionMethod?: string | null;
+  targetFieldFound?: boolean;
+  targetFieldType?: string | null;
+  targetFieldEvidence?: string | null;
 } {
   const certificateNumber =
     text.match(/\b(?:candidate\s*no|certificate\s*no|reg(?:istration)?\s*no)[:\s]*([A-Z0-9-]{5,})/i)?.[1] ?? null;
@@ -20,6 +23,9 @@ export function extractFields(
   let totalScore: number | null = detail.score;
   let scoreLabel: string | null = null;
   const extractionMethod = detail.method;
+  const targetFieldFound = detail.targetFieldFound;
+  const targetFieldType = detail.targetFieldType;
+  const targetFieldEvidence = detail.targetFieldEvidence;
 
   if (documentType === "ielts") {
     scoreLabel = totalScore != null ? "overall band score" : null;
@@ -37,6 +43,9 @@ export function extractFields(
     examDate,
     totalScore,
     scoreLabel,
-    extractionMethod
+    extractionMethod,
+    targetFieldFound,
+    targetFieldType,
+    targetFieldEvidence,
   };
 }

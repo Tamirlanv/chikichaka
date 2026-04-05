@@ -1,22 +1,27 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { HistoryTimeline } from "@/components/commission/HistoryTimeline";
 import { AIInterviewPanel } from "@/components/commission/detail/AIInterviewPanel";
 import { CommissionCommentBlock } from "@/components/commission/detail/CommissionCommentBlock";
 import { MoveNextStageButton } from "@/components/commission/detail/MoveNextStageButton";
 import { PersonalInfoSection } from "@/components/commission/detail/PersonalInfoSection";
+import { VideoCandidateDrawer } from "@/components/commission/detail/VideoCandidateDrawer";
 import { ReviewScoreBlock } from "@/components/commission/detail/ReviewScoreBlock";
 import { TestInfoSection } from "@/components/commission/detail/TestInfoSection";
 import { ApiError } from "@/lib/api-client";
 import { permissionsFromRole } from "@/lib/commission/permissions";
+import { resolveVideoPreviewMeta } from "@/lib/commission/video-review";
 import {
   deleteCommissionApplication,
   getCommissionApplicationPersonalInfo,
   getCommissionApplicationTestInfo,
-  getCommissionRole,
+  getCommissionMe,
+  type CommissionMe,
+  getCommissionApplicationHistoryEvents,
   getCommissionSidebarPanel,
   getSectionReviewScores,
   saveSectionReviewScores,
@@ -26,6 +31,7 @@ import type {
   CommissionApplicationPersonalInfoView,
   CommissionSidebarPanelView,
   CommissionApplicationTestInfoView,
+  CommissionHistoryEvent,
   CommissionRole,
   ReviewScoreBlock as ReviewScoreBlockType,
 } from "@/lib/commission/types";
@@ -50,7 +56,7 @@ function formatAttentionSeverity(severity: AttentionNote["severity"]): string {
   return "Низкий приоритет";
 }
 
-/** Колонка комиссии в UI (не меняет этап кандидата). */
+/** Индекс колонки доски комиссии по этапу воронки (только отображение). */
 function commissionPillIndexFromStage(stage: string): number {
   const s = String(stage);
   if (s === "interview") return 1;
@@ -58,17 +64,94 @@ function commissionPillIndexFromStage(stage: string): number {
   return 0;
 }
 
-/** Подпись этапа на доске комиссии (колонка воронки). */
+/** Русская подпись этапа для колонки доски комиссии. */
 function commissionStageLabelRu(stage: string | undefined | null): string {
   const s = String(stage ?? "");
   const labels: Record<string, string> = {
     data_check: "Проверка данных",
+    initial_screening: "Проверка данных",
     application_review: "Оценка заявки",
     interview: "Собеседование",
     committee_decision: "Решение комиссии",
     result: "Результат",
   };
   return labels[s] ?? (s ? s : "—");
+}
+
+function _containsAny(text: string, needles: string[]): boolean {
+  return needles.some((needle) => text.includes(needle));
+}
+
+function _compactIssueCategories(lines: string[]): string[] {
+  const lower = lines.map((line) => line.toLowerCase());
+  const out: string[] = [];
+  const push = (label: string, match: (line: string) => boolean) => {
+    if (lower.some(match)) out.push(label);
+  };
+
+  push("путь", (line) => _containsAny(line, ["путь", "growth_path", "growth path"]));
+  push("видео", (line) => _containsAny(line, ["видео", "video"]));
+  push("сертификаты", (line) =>
+    _containsAny(line, ["сертификат", "certificate", " ielts", "ент", " ent", "toefl"]),
+  );
+  push("ссылки", (line) => _containsAny(line, ["ссылк", "link"]));
+  push("итоговая AI-сводка", (line) =>
+    _containsAny(line, ["ai-сводк", "ai summary", "candidate_ai_summary", "итогов", "summary"]),
+  );
+  push("мотивация", (line) => _containsAny(line, ["мотивац", "motivation"]));
+  push("достижения", (line) => _containsAny(line, ["достижен", "achievement"]));
+  push("тест", (line) => _containsAny(line, ["тест", "test_profile", " test"]));
+  push("документы", (line) => _containsAny(line, ["документ", "document"]));
+
+  return out;
+}
+
+function _joinHumanList(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} и ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")} и ${items[items.length - 1]}`;
+}
+
+function buildCompactProcessingIssueText(warnings: string[], errors: string[]): string | null {
+  const categories = _compactIssueCategories([...warnings, ...errors]);
+  if (categories.length === 0) {
+    return "Частично обработано. Часть разделов требует ручной проверки.";
+  }
+  return `Частично обработано. Требуют внимания: ${_joinHumanList(categories)}.`;
+}
+
+function buildVideoAttentionNotes(warnings: string[], errors: string[]): string[] {
+  const lines = [...warnings, ...errors].map((line) => line.toLowerCase());
+  const notes: string[] = [];
+  const push = (note: string, match: (line: string) => boolean) => {
+    if (lines.some(match)) notes.push(note);
+  };
+
+  push("Есть риск, что видео обработано не полностью.", (line) =>
+    _containsAny(line, ["видео", "video", "ролик"]),
+  );
+  push("Обнаружены проблемы с распознаванием речи в аудио-дорожке.", (line) =>
+    _containsAny(line, ["аудио", "речь", "транскриб", "speech", "transcript", "text"]),
+  );
+  push("Доступ к видео-ссылке требует дополнительной проверки.", (line) =>
+    _containsAny(line, ["ссылк", "url", "youtube", "drive", "dropbox", "доступ"]),
+  );
+  push("Проверка присутствия кандидата в кадре выполнена частично.", (line) =>
+    _containsAny(line, ["кадр", "лицо", "видно", "frame", "face", "visibility"]),
+  );
+  push("Итоговая сводка по видео требует ручной проверки.", (line) =>
+    _containsAny(line, ["сводк", "summary", "candidate_ai_summary", "итог"]),
+  );
+
+  return notes;
+}
+
+function resolveUnifiedSavedScore(scoreBlock: ReviewScoreBlockType | null): number | null {
+  if (!scoreBlock || scoreBlock.items.length === 0) return null;
+  const manualScores = scoreBlock.items.map((item) => item.manualScore).filter((x): x is number => x !== null);
+  if (manualScores.length !== scoreBlock.items.length) return null;
+  const first = manualScores[0];
+  return manualScores.every((score) => score === first) ? first : null;
 }
 
 function ProcessingBanner({ data }: { data: CommissionApplicationPersonalInfoView }) {
@@ -80,15 +163,19 @@ function ProcessingBanner({ data }: { data: CommissionApplicationPersonalInfoVie
     if (ps.overall === "partial") return null;
   }
 
-  const isError = ps.overall === "failed" || ps.manualReviewRequired;
+  const isProcessing = ps.overall === "pending" || ps.overall === "running";
+  const isOrangeFinal = ps.overall === "partial" || ps.overall === "failed";
+  const title = isProcessing ? "Обработка заявки" : "Обработка завершена с проблемами";
   const label =
     ps.overall === "pending"
       ? "Ожидание обработки..."
       : ps.overall === "running"
         ? `Проверка данных: обработано ${ps.completedCount} из ${ps.totalCount}`
-        : ps.overall === "partial"
-          ? `Частично обработано (${ps.completedCount} из ${ps.totalCount})`
-          : `Ошибка обработки (${ps.completedCount} из ${ps.totalCount})`;
+        : `Частично обработано (${ps.completedCount} из ${ps.totalCount})`;
+  const subtitle = isOrangeFinal
+    ? "Автопереход не выполнен. Заявка готова к ручному переходу комиссии на этап «Оценка заявки»."
+    : null;
+  const compactIssueText = isOrangeFinal ? buildCompactProcessingIssueText(ps.warnings, ps.errors) : null;
 
   return (
     <div
@@ -97,30 +184,36 @@ function ProcessingBanner({ data }: { data: CommissionApplicationPersonalInfoVie
         gap: 6,
         padding: "12px 16px",
         borderRadius: 8,
-        borderLeft: isError ? "4px solid #e53935" : "4px solid #fb8c00",
-        background: isError ? "#fef2f2" : "#fff8e1",
+        borderLeft: isProcessing ? "4px solid #008ADA" : "4px solid #DACF00",
+        background: isProcessing ? "#eef6fd" : "#fff8e1",
       }}
     >
-      <p style={{ margin: 0, fontSize: 14, fontWeight: 550 }}>
-        {isError ? "Требуется внимание" : "Обработка заявки"}
-      </p>
+      <p style={{ margin: 0, fontSize: 14, fontWeight: 550 }}>{title}</p>
       <p style={{ margin: 0, fontSize: 14, fontWeight: 350, color: "#626262" }}>{label}</p>
-      {ps.warnings.length > 0 ? (
-        <p style={{ margin: 0, fontSize: 13, fontWeight: 350, color: "#626262" }}>{ps.warnings.join("; ")}</p>
-      ) : null}
-      {ps.errors.length > 0 ? (
-        <p style={{ margin: 0, fontSize: 13, fontWeight: 350, color: "#e53935" }}>{ps.errors.join("; ")}</p>
+      {subtitle ? <p style={{ margin: 0, fontSize: 13, fontWeight: 350, color: "#626262" }}>{subtitle}</p> : null}
+      {compactIssueText ? (
+        <p style={{ margin: 0, fontSize: 13, fontWeight: 350, color: "#626262" }}>{compactIssueText}</p>
       ) : null}
     </div>
   );
 }
 
+const INTERVIEW_SUB_TAB_QUERY: Record<string, "Подготовка вопросов" | "AI-собеседование" | "Собеседование с комиссией"> =
+  {
+    prep: "Подготовка вопросов",
+    ai: "AI-собеседование",
+    commission: "Собеседование с комиссией",
+  };
+
 export default function CommissionApplicationDetailPage() {
   const params = useParams<{ applicationId?: string | string[] }>();
+  const searchParams = useSearchParams();
   const applicationId = Array.isArray(params.applicationId) ? params.applicationId[0] : params.applicationId;
   const router = useRouter();
+  const sidebarMode = searchParams.get("sidebar") === "history" ? "history" : "summary";
   const [data, setData] = useState<CommissionApplicationPersonalInfoView | null>(null);
   const [role, setRole] = useState<CommissionRole | null>(null);
+  const [commissionMe, setCommissionMe] = useState<CommissionMe | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<LoadError | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -134,22 +227,43 @@ export default function CommissionApplicationDetailPage() {
 
   const [sidebarPanel, setSidebarPanel] = useState<CommissionSidebarPanelView | null>(null);
   const [sidebarLoading, setSidebarLoading] = useState(false);
-  const lastSidebarTabRef = useRef<string>("");
+  const lastSidebarRequestKeyRef = useRef<string>("");
+  const sidebarPanelKeyRef = useRef<string>("");
+  const [historyEvents, setHistoryEvents] = useState<CommissionHistoryEvent[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const [sectionScores, setSectionScores] = useState<ReviewScoreBlockType | null>(null);
   const [scoresLoading, setScoresLoading] = useState(false);
   const lastScoresTabRef = useRef<string>("");
+  const [isVideoDrawerOpen, setIsVideoDrawerOpen] = useState(false);
+  const [videoScoreBlock, setVideoScoreBlock] = useState<ReviewScoreBlockType | null>(null);
+  const [videoScoreLoading, setVideoScoreLoading] = useState(false);
+  const [videoScoreSaving, setVideoScoreSaving] = useState(false);
 
   const [commissionPillIndex, setCommissionPillIndex] = useState(0);
   const [interviewSubTab, setInterviewSubTab] = useState("Подготовка вопросов");
   const commissionAppSyncRef = useRef<string | undefined>(undefined);
 
+  /** API maps initial_screening to commission column id `data_check` — gate must accept both. */
+  const isDataVerificationStage = Boolean(
+    data?.stageContext?.currentStage === "data_check" ||
+      data?.stageContext?.currentStage === "initial_screening",
+  );
+
   const effectiveSidebarTab = useMemo(() => {
+    if (isDataVerificationStage) {
+      return activeTab;
+    }
     if (commissionPillIndex === 1 && interviewSubTab === "AI-собеседование") {
       return "ai_interview";
     }
     return activeTab;
-  }, [commissionPillIndex, interviewSubTab, activeTab]);
+  }, [commissionPillIndex, interviewSubTab, activeTab, isDataVerificationStage]);
+  const sidebarRequestKey = useMemo(
+    () => `${applicationId ?? ""}:${effectiveSidebarTab}`,
+    [applicationId, effectiveSidebarTab],
+  );
+  const hasSidebarDataForCurrentKey = Boolean(sidebarPanel && sidebarPanelKeyRef.current === sidebarRequestKey);
 
   async function handleDelete() {
     if (!applicationId || deleteRef.current) return;
@@ -184,13 +298,14 @@ export default function CommissionApplicationDetailPage() {
       setLoading(true);
       setLoadError(null);
       try {
-        const [detail, commissionRole] = await Promise.all([
+        const [detail, me] = await Promise.all([
           getCommissionApplicationPersonalInfo(applicationId!),
-          getCommissionRole(),
+          getCommissionMe(),
         ]);
         if (cancelled) return;
         setData(detail);
-        setRole(commissionRole);
+        setCommissionMe(me);
+        setRole(me?.role ?? null);
       } catch (error) {
         if (cancelled) return;
         if (error instanceof ApiError) {
@@ -209,16 +324,38 @@ export default function CommissionApplicationDetailPage() {
   }, [applicationId]);
 
   useEffect(() => {
-    if (!applicationId || lastSidebarTabRef.current === effectiveSidebarTab) return;
-    lastSidebarTabRef.current = effectiveSidebarTab;
+    lastSidebarRequestKeyRef.current = "";
+    sidebarPanelKeyRef.current = "";
+    setSidebarPanel(null);
+    setSidebarLoading(false);
+    setHistoryEvents([]);
+    setHistoryLoading(false);
+    setIsVideoDrawerOpen(false);
+    setVideoScoreBlock(null);
+    setVideoScoreLoading(false);
+    setVideoScoreSaving(false);
+  }, [applicationId]);
+
+  useEffect(() => {
+    if (sidebarMode === "history") return;
+    if (!applicationId || lastSidebarRequestKeyRef.current === sidebarRequestKey) return;
+    lastSidebarRequestKeyRef.current = sidebarRequestKey;
     let cancelled = false;
-    setSidebarLoading(true);
+    if (!hasSidebarDataForCurrentKey) {
+      setSidebarLoading(true);
+    }
     getCommissionSidebarPanel(applicationId!, effectiveSidebarTab)
       .then((panel) => {
-        if (!cancelled) setSidebarPanel(panel);
+        if (!cancelled) {
+          sidebarPanelKeyRef.current = sidebarRequestKey;
+          setSidebarPanel(panel);
+        }
       })
       .catch(() => {
-        if (!cancelled) setSidebarPanel(null);
+        if (!cancelled) {
+          sidebarPanelKeyRef.current = sidebarRequestKey;
+          setSidebarPanel(null);
+        }
       })
       .finally(() => {
         if (!cancelled) setSidebarLoading(false);
@@ -226,7 +363,26 @@ export default function CommissionApplicationDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [effectiveSidebarTab, applicationId]);
+  }, [effectiveSidebarTab, applicationId, sidebarMode, sidebarRequestKey, hasSidebarDataForCurrentKey]);
+
+  useEffect(() => {
+    if (!applicationId || sidebarMode !== "history") return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    getCommissionApplicationHistoryEvents(applicationId, { sort: "newest", limit: 200, offset: 0 })
+      .then((payload) => {
+        if (!cancelled) setHistoryEvents(payload.items);
+      })
+      .catch(() => {
+        if (!cancelled) setHistoryEvents([]);
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationId, sidebarMode]);
 
   useEffect(() => {
     if (activeTab !== "Тест" || !applicationId || testFetchedRef.current) return;
@@ -247,10 +403,24 @@ export default function CommissionApplicationDetailPage() {
   }, [activeTab, applicationId]);
 
   useEffect(() => {
-    if (!applicationId || activeTab === "Личная информация" || lastScoresTabRef.current === activeTab) return;
+    if (!applicationId || activeTab === "Личная информация") return;
+    if (isDataVerificationStage) {
+      lastScoresTabRef.current = "";
+      setSectionScores(null);
+      setScoresLoading(false);
+      return;
+    }
+    if (activeTab === "Тест") {
+      lastScoresTabRef.current = "Тест";
+      setSectionScores(null);
+      setScoresLoading(false);
+      return;
+    }
+    if (lastScoresTabRef.current === activeTab) return;
     lastScoresTabRef.current = activeTab;
     let cancelled = false;
     setScoresLoading(true);
+    setSectionScores(null);
     getSectionReviewScores(applicationId!, activeTab)
       .then((result) => {
         if (!cancelled) setSectionScores(result);
@@ -261,18 +431,71 @@ export default function CommissionApplicationDetailPage() {
       .finally(() => {
         if (!cancelled) setScoresLoading(false);
       });
-    return () => { cancelled = true; };
-  }, [activeTab, applicationId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, applicationId, isDataVerificationStage]);
+
+  useEffect(() => {
+    if (!isVideoDrawerOpen || !applicationId) return;
+    let cancelled = false;
+    setVideoScoreLoading(true);
+    getSectionReviewScores(applicationId, "Личная информация")
+      .then((result) => {
+        if (!cancelled) setVideoScoreBlock(result);
+      })
+      .catch(() => {
+        if (!cancelled) setVideoScoreBlock(null);
+      })
+      .finally(() => {
+        if (!cancelled) setVideoScoreLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isVideoDrawerOpen, applicationId]);
 
   useEffect(() => {
     if (!data?.applicationId) return;
     if (commissionAppSyncRef.current === data.applicationId) return;
     commissionAppSyncRef.current = data.applicationId;
-    setCommissionPillIndex(commissionPillIndexFromStage(String(data.stageContext.currentStage)));
-    setInterviewSubTab("Подготовка вопросов");
-  }, [data]);
+    const stage = String(data.stageContext.currentStage);
+    const onDataVerification = stage === "data_check" || stage === "initial_screening";
+    setCommissionPillIndex(commissionPillIndexFromStage(stage));
+    const q = searchParams.get("interviewSubTab");
+    const sub =
+      q === "prep" || q === "ai" || q === "commission" ? INTERVIEW_SUB_TAB_QUERY[q] : null;
+    if (sub && !onDataVerification) {
+      setCommissionPillIndex(1);
+      setInterviewSubTab(sub);
+    } else {
+      setInterviewSubTab("Подготовка вопросов");
+    }
+  }, [data, searchParams]);
 
   const permissions = useMemo(() => permissionsFromRole(role), [role]);
+
+  const videoUnitStatus = data?.processingStatus?.units?.video_validation;
+  const canOpenVideoReview = Boolean(data?.personalInfo.videoPresentation?.url);
+  const videoPreview = resolveVideoPreviewMeta(data?.personalInfo.videoPresentation?.url ?? null);
+  const videoSummary = data?.personalInfo.videoPresentation?.summary?.trim() ?? null;
+  const videoNotes = buildVideoAttentionNotes(
+    data?.processingStatus?.warnings ?? [],
+    data?.processingStatus?.errors ?? [],
+  );
+  const hasVideoData = Boolean(
+    (data?.personalInfo.videoPresentation?.duration ?? "").trim() ||
+      videoSummary ||
+      videoNotes.length > 0 ||
+      videoUnitStatus === "completed",
+  );
+  const videoRecommendedScore = hasVideoData ? (videoScoreBlock?.aggregateRecommendedScore ?? null) : null;
+  const videoCurrentScore = resolveUnifiedSavedScore(videoScoreBlock);
+  const canEditVideoScore = Boolean(
+    permissions.canComment &&
+      !data?.readOnly &&
+      !isDataVerificationStage,
+  );
 
   const _TAB_TO_SECTION: Record<string, string> = useMemo(() => ({
     "Личная информация": "personal",
@@ -284,12 +507,12 @@ export default function CommissionApplicationDetailPage() {
 
   const handleSaveScores = useCallback(
     async (scores: Array<{ key: string; score: number }>) => {
-      if (!applicationId) return;
+      if (!applicationId || isDataVerificationStage) return;
       const section = _TAB_TO_SECTION[activeTab] ?? "personal";
       const updated = await saveSectionReviewScores(applicationId!, section, scores);
       setSectionScores(updated);
     },
-    [applicationId, activeTab, _TAB_TO_SECTION],
+    [applicationId, activeTab, _TAB_TO_SECTION, isDataVerificationStage],
   );
 
   if (loading) {
@@ -368,42 +591,57 @@ export default function CommissionApplicationDetailPage() {
 
           {/* Card 2: Sidebar panel — swaps based on active tab */}
           <section className={styles.sideCard}>
-            <div key={`${commissionPillIndex}-${effectiveSidebarTab}`} className={styles.sidebarPanelEnter}>
-              <h3 className={styles.aiTitle}>{sidebarPanel?.title ?? "Summary"}</h3>
-              {sidebarLoading ? (
-                <p className={styles.aiText}>Загрузка...</p>
-              ) : sidebarPanel ? (
-                <div style={{ display: "grid", gap: 16 }}>
-                  {sidebarPanel.sections.map((section) => (
-                    <div key={section.title} style={{ display: "grid", gap: 4 }}>
-                      <p className={styles.aiLabel}>{section.title}</p>
-                      {section.attentionNotes && section.attentionNotes.length > 0 ? (
-                        section.attentionNotes.map((note, i) => (
-                          <p key={`${note.category}-${i}`} className={styles.aiText}>
-                            <span style={{ fontWeight: 450 }}>{note.title}:</span> {note.message}
-                            <span style={{ color: "#8b8b8b" }}> ({formatAttentionSeverity(note.severity)})</span>
-                          </p>
-                        ))
-                      ) : (
-                        section.items.map((item, i) => {
-                          const text = typeof item === "string" ? item : item.text;
-                          const tone = typeof item === "string" ? undefined : item.tone;
-                          const color =
-                            tone === "success" ? "#15803d" : tone === "danger" ? "#b91c1c" : undefined;
-                          return (
-                            <p key={i} className={styles.aiText} style={color ? { color } : undefined}>
-                              {text}
+            {sidebarMode === "history" ? (
+              <div className={styles.sidebarPanelEnter} style={{ display: "grid", gap: 12 }}>
+                <h3 className={styles.aiTitle}>История кандидата</h3>
+                <HistoryTimeline
+                  items={historyEvents}
+                  loading={historyLoading}
+                  compact
+                  linkToCandidate={false}
+                  emptyText="История по этой заявке пока отсутствует."
+                />
+              </div>
+            ) : (
+              <div key={`${commissionPillIndex}-${effectiveSidebarTab}`} className={styles.sidebarPanelEnter}>
+                <h3 className={styles.aiTitle}>
+                  {sidebarPanel?.title ?? (isDataVerificationStage ? "Статус обработки" : "Summary")}
+                </h3>
+                {sidebarLoading && !hasSidebarDataForCurrentKey ? (
+                  <p className={styles.aiText}>Загрузка...</p>
+                ) : hasSidebarDataForCurrentKey ? (
+                  <div style={{ display: "grid", gap: 16 }}>
+                    {sidebarPanel!.sections.map((section) => (
+                      <div key={section.title} style={{ display: "grid", gap: 4 }}>
+                        <p className={styles.aiLabel}>{section.title}</p>
+                        {section.attentionNotes && section.attentionNotes.length > 0 ? (
+                          section.attentionNotes.map((note, i) => (
+                            <p key={`${note.category}-${i}`} className={styles.aiText}>
+                              <span style={{ fontWeight: 450 }}>{note.title}:</span> {note.message}
+                              <span style={{ color: "#8b8b8b" }}> ({formatAttentionSeverity(note.severity)})</span>
                             </p>
-                          );
-                        })
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className={styles.aiText}>Данные недоступны.</p>
-              )}
-            </div>
+                          ))
+                        ) : (
+                          section.items.map((item, i) => {
+                            const text = typeof item === "string" ? item : item.text;
+                            const tone = typeof item === "string" ? undefined : item.tone;
+                            const color =
+                              tone === "success" ? "#15803d" : tone === "danger" ? "#b91c1c" : undefined;
+                            return (
+                              <p key={i} className={styles.aiText} style={color ? { color } : undefined}>
+                                {text}
+                              </p>
+                            );
+                          })
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className={styles.aiText}>Данные недоступны.</p>
+                )}
+              </div>
+            )}
           </section>
 
           {/* Card 3: Comment */}
@@ -431,29 +669,37 @@ export default function CommissionApplicationDetailPage() {
                 color: "#374151",
               }}
             >
-              Архивная заявка: только просмотр, действия комиссии недоступны.
+              {data.readOnlyReason?.trim()
+                ? data.readOnlyReason
+                : "Заявка доступна только для просмотра, действия комиссии недоступны."}
             </div>
           ) : null}
           <ProcessingBanner data={data} />
           <PersonalInfoSection
             data={data}
+            readOnly={Boolean(data.readOnly)}
+            canOpenVideoReview={canOpenVideoReview}
+            onOpenVideoReview={() => setIsVideoDrawerOpen(true)}
             activeTab={activeTab}
             onTabChange={setActiveTab}
             commissionPillIndex={commissionPillIndex}
             onCommissionPillChange={setCommissionPillIndex}
             interviewSubTab={interviewSubTab}
             onInterviewSubTabChange={setInterviewSubTab}
+            isDataVerificationStage={isDataVerificationStage}
             interviewPrepSlot={
-              <AIInterviewPanel
-                applicationId={data.applicationId}
-                canGenerate={Boolean(data.actions.canGenerateAiInterview)}
-                canApprove={Boolean(data.actions.canApproveAiInterview)}
-                isActive={commissionPillIndex === 1 && interviewSubTab === "Подготовка вопросов"}
-                onChanged={async () => {
-                  const detail = await getCommissionApplicationPersonalInfo(applicationId!);
-                  setData(detail);
-                }}
-              />
+              isDataVerificationStage ? null : (
+                <AIInterviewPanel
+                  applicationId={data.applicationId}
+                  canGenerate={Boolean(data.actions.canGenerateAiInterview)}
+                  canApprove={Boolean(data.actions.canApproveAiInterview)}
+                  isActive={commissionPillIndex === 1 && interviewSubTab === "Подготовка вопросов"}
+                  onChanged={async () => {
+                    const detail = await getCommissionApplicationPersonalInfo(applicationId!);
+                    setData(detail);
+                  }}
+                />
+              )
             }
             moveButton={
               <MoveNextStageButton
@@ -463,17 +709,48 @@ export default function CommissionApplicationDetailPage() {
             }
           />
 
+          <VideoCandidateDrawer
+            open={isVideoDrawerOpen}
+            onClose={() => setIsVideoDrawerOpen(false)}
+            duration={data.personalInfo.videoPresentation?.duration ?? null}
+            summary={videoSummary}
+            notes={videoNotes}
+            preview={videoPreview}
+            recommendedScore={videoRecommendedScore}
+            currentScore={videoCurrentScore}
+            canEditScore={canEditVideoScore}
+            scoreLoading={videoScoreLoading}
+            scoreSaving={videoScoreSaving}
+            onSaveScore={async (score) => {
+              if (!applicationId || !canEditVideoScore) return;
+              setVideoScoreSaving(true);
+              try {
+                const targetKeys =
+                  videoScoreBlock?.items.map((item) => item.key) ?? [
+                    "data_completeness",
+                    "source_verifiability",
+                    "personal_contribution",
+                  ];
+                const updated = await saveSectionReviewScores(applicationId, "personal", [
+                  ...targetKeys.map((key) => ({ key, score })),
+                ]);
+                setVideoScoreBlock(updated);
+              } finally {
+                setVideoScoreSaving(false);
+              }
+            }}
+          />
+
           {commissionPillIndex === 0 && activeTab !== "Личная информация" && (
             <div key={activeTab} className={tabTransitionStyles.tabPanelEnter}>
-          {activeTab === "Тест" && (
-            testLoading ? (
+          {activeTab === "Тест" &&
+            (testLoading ? (
               <p style={{ color: "#626262", fontSize: 14 }}>Загрузка теста...</p>
             ) : testData ? (
               <TestInfoSection data={testData} />
             ) : (
               <p style={{ color: "#626262", fontSize: 14 }}>Данные теста недоступны.</p>
-            )
-          )}
+            ))}
 
           {activeTab === "Мотивация" && (
             <section style={{ display: "grid", gap: 12 }}>
@@ -514,6 +791,16 @@ export default function CommissionApplicationDetailPage() {
               >
                 {data.motivation?.narrative ?? "Мотивационное письмо не заполнено."}
               </p>
+              {!isDataVerificationStage && scoresLoading ? (
+                <p style={{ color: "#626262", fontSize: 14, marginTop: 24 }}>Загрузка оценок...</p>
+              ) : !isDataVerificationStage && sectionScores?.section === "motivation" && sectionScores.items.length > 0 ? (
+                <ReviewScoreBlock
+                  data={sectionScores}
+                  onSave={handleSaveScores}
+                  canEdit={permissions.canComment && !data.readOnly}
+                  savedByEmail={commissionMe?.email ?? null}
+                />
+              ) : null}
             </section>
           )}
 
@@ -578,6 +865,16 @@ export default function CommissionApplicationDetailPage() {
                   Раздел «Путь» не заполнен.
                 </p>
               )}
+              {!isDataVerificationStage && scoresLoading ? (
+                <p style={{ color: "#626262", fontSize: 14, marginTop: 24 }}>Загрузка оценок...</p>
+              ) : !isDataVerificationStage && sectionScores?.section === "path" && sectionScores.items.length > 0 ? (
+                <ReviewScoreBlock
+                  data={sectionScores}
+                  onSave={handleSaveScores}
+                  canEdit={permissions.canComment && !data.readOnly}
+                  savedByEmail={commissionMe?.email ?? null}
+                />
+              ) : null}
             </section>
           )}
 
@@ -732,23 +1029,19 @@ export default function CommissionApplicationDetailPage() {
                   <p style={{ margin: 0, fontSize: 14, color: "#626262" }}>Ссылки не добавлены.</p>
                 )}
               </div>
-            </section>
-          )}
-            </div>
-          )}
-
-          {commissionPillIndex === 0 && activeTab !== "Личная информация" && (
-            scoresLoading ? (
-              <p style={{ color: "#626262", fontSize: 14, marginTop: 16 }}>Загрузка оценок...</p>
-            ) : sectionScores && sectionScores.items.length > 0 ? (
-              <div style={{ marginTop: 24 }}>
+              {!isDataVerificationStage && scoresLoading ? (
+                <p style={{ color: "#626262", fontSize: 14, marginTop: 24 }}>Загрузка оценок...</p>
+              ) : !isDataVerificationStage && sectionScores?.section === "achievements" && sectionScores.items.length > 0 ? (
                 <ReviewScoreBlock
                   data={sectionScores}
                   onSave={handleSaveScores}
-                  canEdit={permissions.canComment}
+                  canEdit={permissions.canComment && !data.readOnly}
+                  savedByEmail={commissionMe?.email ?? null}
                 />
-              </div>
-            ) : null
+              ) : null}
+            </section>
+          )}
+            </div>
           )}
 
           {permissions.canMove && !data.readOnly ? (

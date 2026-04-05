@@ -10,9 +10,28 @@ from invision_api.models.video_validation import VideoValidationResultRow
 from invision_api.services.data_check.contracts import UnitExecutionResult
 from invision_api.services.data_check.utils import get_validated_section
 from invision_api.services.video_processing import run_presentation_pipeline
-from invision_api.services.video_processing.constants import MEDIA_STATUS_FAILED, MEDIA_STATUS_READY
+from invision_api.services.video_processing.constants import MEDIA_STATUS_FAILED, MEDIA_STATUS_PARTIAL, MEDIA_STATUS_READY
 
 logger = logging.getLogger(__name__)
+
+
+def _detect_video_error_code(errors: list[str]) -> str | None:
+    blob = " ".join((e or "") for e in errors).lower()
+    if not blob:
+        return None
+    if "yt-dlp" in blob or "yt_dlp" in blob:
+        return "missing_ytdlp"
+    if "ffprobe" in blob and "не найден бинарник" in blob:
+        return "missing_ffprobe"
+    if "ffmpeg" in blob and "не найден бинарник" in blob:
+        return "missing_ffmpeg"
+    if "таймаут" in blob:
+        return "media_tool_timeout"
+    if "метаданные" in blob:
+        return "probe_failed"
+    if "загрузить видео" in blob:
+        return "ingestion_failed"
+    return "video_processing_error"
 
 
 def run_video_validation_processing(db: Session, *, application_id: UUID, candidate_id: UUID) -> UnitExecutionResult:
@@ -45,6 +64,8 @@ def run_video_validation_processing(db: Session, *, application_id: UUID, candid
             normalized_url=video_url,
             access_status="unreachable",
             media_status=MEDIA_STATUS_FAILED,
+            codec_video=None,
+            codec_audio=None,
             errors=["Внутренняя ошибка обработки видео."],
             manual_review_required=True,
             summary_text=None,
@@ -53,27 +74,37 @@ def run_video_validation_processing(db: Session, *, application_id: UUID, candid
         db.flush()
         return UnitExecutionResult(
             status="failed",
-            payload={"resultId": str(row.id), "videoUrl": video_url},
+            payload={"resultId": str(row.id), "videoUrl": video_url, "errorCode": "video_pipeline_exception"},
             errors=["Внутренняя ошибка обработки видео."],
             explainability=["Исключение при выполнении пайплайна видео."],
             manual_review_required=True,
         )
 
     ok = outcome.media_status == MEDIA_STATUS_READY and not outcome.errors
+    partial = outcome.media_status == MEDIA_STATUS_PARTIAL
     manual = not ok
+    if ok:
+        unit_status = "completed"
+    elif partial:
+        unit_status = "manual_review_required"
+    else:
+        unit_status = "failed"
 
     analyzed = outcome.frames_extracted_success
+    error_code = _detect_video_error_code(list(outcome.errors))
     row = VideoValidationResultRow(
         application_id=application_id,
         video_url=video_url,
-        normalized_url=video_url,
-        access_status="reachable" if outcome.media_status != MEDIA_STATUS_FAILED else "unreachable",
+        normalized_url=outcome.normalized_url or video_url,
+        access_status=outcome.access_status or ("reachable" if outcome.media_status != MEDIA_STATUS_FAILED else "unreachable"),
         media_status=outcome.media_status,
         duration_sec=outcome.duration_sec,
         width=outcome.width,
         height=outcome.height,
         has_video_track=outcome.has_video_track,
         has_audio_track=outcome.has_audio_track,
+        codec_video=outcome.codec_video,
+        codec_audio=outcome.codec_audio,
         total_frames_analyzed=analyzed,
         face_detected_frames_count=outcome.face_detected_frames_count,
         face_coverage_ratio=(outcome.face_detected_frames_count / analyzed) if analyzed else 0.0,
@@ -86,7 +117,11 @@ def run_video_validation_processing(db: Session, *, application_id: UUID, candid
         likely_speech_audible=outcome.has_speech,
         likely_presentation_valid=ok,
         manual_review_required=manual,
-        explainability=["Видеопрезентация обработана."],
+        explainability=[
+            "Видеопрезентация обработана.",
+            f"Источник: {outcome.provider}",
+            f"Стратегия загрузки: {outcome.ingestion_strategy}",
+        ],
         warnings=outcome.warnings,
         errors=list(outcome.errors),
         confidence=0.85 if ok else 0.35,
@@ -96,12 +131,23 @@ def run_video_validation_processing(db: Session, *, application_id: UUID, candid
     db.flush()
 
     return UnitExecutionResult(
-        status="completed" if ok else "manual_review_required",
+        status=unit_status,
         payload={
             "resultId": str(row.id),
             "videoUrl": video_url,
+            "normalizedUrl": row.normalized_url,
+            "provider": outcome.provider,
+            "resourceType": outcome.resource_type,
+            "ingestionStrategy": outcome.ingestion_strategy,
             "mediaStatus": row.media_status,
+            "accessStatus": row.access_status,
             "durationSec": row.duration_sec,
+            "codecVideo": row.codec_video,
+            "codecAudio": row.codec_audio,
+            "container": outcome.container,
+            "candidateVisible": outcome.candidate_visible,
+            "summary": row.summary_text,
+            "errorCode": error_code,
         },
         warnings=outcome.warnings,
         errors=list(outcome.errors),

@@ -1,6 +1,6 @@
 """AI clarification interview: weights, gating, approve flow, candidate DTO."""
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -10,9 +10,8 @@ from sqlalchemy.orm import Session
 
 from invision_api.commission.application import service as commission_service
 from invision_api.commission.application import sidebar_service
-from invision_api.models.commission import InterviewSlotBooking
-from invision_api.models.enums import ApplicationStage, ApplicationState
-from invision_api.repositories import ai_interview_repository, commission_repository
+from invision_api.models.enums import ApplicationStage, ApplicationState, InterviewPreferenceWindowStatus
+from invision_api.repositories import admissions_repository, ai_interview_repository, commission_repository
 from invision_api.services.ai_interview.prioritize import compute_signal_weight, question_count_from_weight
 from invision_api.services.ai_interview import service as ai_interview_service
 from invision_api.services.interview_preferences import service as interview_preferences_service
@@ -121,6 +120,17 @@ def test_candidate_questions_contain_no_internal_fields(db: Session, factory) ->
         assert set(item.keys()) == {"id", "sortOrder", "questionText"}
         assert "reason" not in item
         assert "секрет" not in str(item)
+
+
+def test_candidate_questions_empty_when_wrong_stage_not_404(db: Session, factory) -> None:
+    """After commission archive, new application is draft/application — no 404 spam for questions."""
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile, state=ApplicationState.draft.value)
+    app.current_stage = ApplicationStage.application.value
+    db.flush()
+    assert ai_interview_service.get_approved_questions_for_candidate(db, app.id) == []
+    assert ai_interview_service.list_candidate_answers_for_application(db, app.id) == []
 
 
 def test_regenerate_draft_clears_approval_metadata(db: Session, factory) -> None:
@@ -374,7 +384,7 @@ def test_patch_draft_audit_includes_changed_question_ids(monkeypatch, db: Sessio
 
 
 def test_e2e_mock_generate_patch_approve_candidate_questions(monkeypatch, db: Session, factory) -> None:
-    def fake_gen(*, context, target_count):
+    def fake_gen(*, context, target_count, application_id=None):
         base = [
             {"id": "a1", "questionText": "Вопрос один?", "sortOrder": 0},
             {"id": "a2", "questionText": "Вопрос два?", "sortOrder": 1},
@@ -710,16 +720,13 @@ def test_interview_preferences_blocked_until_ai_interview_completed(db: Session,
         interview_preferences_service.submit_interview_preferences(
             db,
             app.id,
-            slots=[{"date": "2030-06-04", "timeRangeCode": "09-11"}],
+            slots=[{"date": "2030-06-04", "timeRangeCode": "09-10"}],
         )
     assert exc.value.status_code == 409
 
 
-def test_submit_interview_preferences_conflict_returns_409(db: Session, factory) -> None:
-    """Second application cannot book the same (date, time_range_code) as an existing booking."""
-    slot_d = date(2030, 6, 4)
-    assert slot_d.weekday() < 5
-
+def test_submit_interview_preferences_same_slot_two_applications_ok(db: Session, factory) -> None:
+    """Preferences are not exclusive: two candidates may prefer the same (date, time_range_code)."""
     u1 = factory.user(db)
     p1 = factory.profile(db, u1)
     app1 = factory.application(db, p1, state=ApplicationState.submitted.value)
@@ -739,42 +746,53 @@ def test_submit_interview_preferences_conflict_returns_409(db: Session, factory)
         {"id": "q2", "questionText": "B?", "sortOrder": 1},
         {"id": "q3", "questionText": "C?", "sortOrder": 2},
     ]
-    row2 = ai_interview_repository.upsert_draft(
-        db,
-        application_id=app2.id,
-        questions=q_rows,
-        generated_from_signals=None,
-    )
-    ai_interview_repository.mark_approved(db, row2, approved_by_user_id=u2.id)
-    row2.candidate_completed_at = datetime.now(tz=UTC)
-    db.flush()
-
-    db.add(
-        InterviewSlotBooking(
-            application_id=app1.id,
-            slot_date=slot_d,
-            time_range_code="09-11",
-            sort_order=1,
-        )
-    )
-    db.flush()
-
-    with pytest.raises(HTTPException) as exc:
-        interview_preferences_service.submit_interview_preferences(
+    for app, user in ((app1, u1), (app2, u2)):
+        row = ai_interview_repository.upsert_draft(
             db,
-            app2.id,
-            slots=[{"date": slot_d.isoformat(), "timeRangeCode": "09-11"}],
+            application_id=app.id,
+            questions=q_rows,
+            generated_from_signals=None,
         )
-    assert exc.value.status_code == 409
+        ai_interview_repository.mark_approved(db, row, approved_by_user_id=user.id)
+        row.candidate_completed_at = datetime.now(tz=UTC)
+    db.flush()
+
+    slot_date = interview_preferences_service.list_available_days(db, app1.id)["days"][0]["date"]
+
+    interview_preferences_service.submit_interview_preferences(
+        db,
+        app1.id,
+        slots=[{"date": slot_date, "timeRangeCode": "09-10"}],
+    )
+    out = interview_preferences_service.submit_interview_preferences(
+        db,
+        app2.id,
+        slots=[{"date": slot_date, "timeRangeCode": "09-10"}],
+    )
+    assert out.get("ok") is True
 
 
-def test_list_projections_interview_kanban_only_filters_by_preferences(db: Session, factory) -> None:
+def test_list_projections_interview_kanban_only_filters_by_ai_interview_completed(db: Session, factory) -> None:
+    """Interview kanban shows candidates who finished AI interview, not only those who sent slot preferences."""
+    q_rows = [
+        {"id": "q1", "questionText": "A?", "sortOrder": 0},
+        {"id": "q2", "questionText": "B?", "sortOrder": 1},
+        {"id": "q3", "questionText": "C?", "sortOrder": 2},
+    ]
     user = factory.user(db)
     profile = factory.profile(db, user)
     app_ready = factory.application(db, profile, state=ApplicationState.submitted.value)
     app_ready.current_stage = ApplicationStage.interview.value
     app_ready.state = ApplicationState.interview_pending.value
-    app_ready.interview_preferences_submitted_at = datetime.now(tz=UTC)
+    db.flush()
+    row_ready = ai_interview_repository.upsert_draft(
+        db,
+        application_id=app_ready.id,
+        questions=q_rows,
+        generated_from_signals=None,
+    )
+    ai_interview_repository.mark_approved(db, row_ready, approved_by_user_id=user.id)
+    row_ready.candidate_completed_at = datetime.now(tz=UTC)
     db.flush()
 
     user2 = factory.user(db)
@@ -782,7 +800,14 @@ def test_list_projections_interview_kanban_only_filters_by_preferences(db: Sessi
     app_pending = factory.application(db, profile2, state=ApplicationState.submitted.value)
     app_pending.current_stage = ApplicationStage.interview.value
     app_pending.state = ApplicationState.interview_pending.value
-    app_pending.interview_preferences_submitted_at = None
+    db.flush()
+    row_pend = ai_interview_repository.upsert_draft(
+        db,
+        application_id=app_pending.id,
+        questions=q_rows,
+        generated_from_signals=None,
+    )
+    ai_interview_repository.mark_approved(db, row_pend, approved_by_user_id=user2.id)
     db.flush()
 
     commission_repository.upsert_projection_for_application(db, app_ready)
@@ -797,3 +822,226 @@ def test_list_projections_interview_kanban_only_filters_by_preferences(db: Sessi
     ids = {r.application_id for r in rows}
     assert app_ready.id in ids
     assert app_pending.id not in ids
+
+
+def test_complete_ai_interview_opens_preference_window(db: Session, factory) -> None:
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile, state=ApplicationState.submitted.value)
+    app.current_stage = ApplicationStage.interview.value
+    app.state = ApplicationState.interview_pending.value
+    db.flush()
+    q_rows = [
+        {"id": "q1", "questionText": "A?", "sortOrder": 0},
+        {"id": "q2", "questionText": "B?", "sortOrder": 1},
+        {"id": "q3", "questionText": "C?", "sortOrder": 2},
+    ]
+    row = ai_interview_repository.upsert_draft(
+        db,
+        application_id=app.id,
+        questions=q_rows,
+        generated_from_signals=None,
+    )
+    ai_interview_repository.mark_approved(db, row, approved_by_user_id=user.id)
+    db.flush()
+    ai_interview_service.save_candidate_answers_stub(
+        db,
+        app.id,
+        answers=[
+            {"questionId": "q1", "text": "A"},
+            {"questionId": "q2", "text": "B"},
+            {"questionId": "q3", "text": "C"},
+        ],
+    )
+    db.flush()
+    ai_interview_service.complete_candidate_ai_interview(db, app.id)
+    db.refresh(app)
+    assert app.interview_preference_window_status == InterviewPreferenceWindowStatus.awaiting_candidate_preferences.value
+    assert app.interview_preference_window_opened_at is not None
+    assert app.interview_preference_window_expires_at is not None
+
+
+def test_preference_window_expires_after_one_hour(db: Session, factory) -> None:
+    from invision_api.services.interview_preference_window.service import ensure_preference_window_expired_for_application
+
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile, state=ApplicationState.submitted.value)
+    app.current_stage = ApplicationStage.interview.value
+    app.state = ApplicationState.interview_pending.value
+    past = datetime.now(tz=UTC) - timedelta(hours=2)
+    app.interview_preference_window_status = InterviewPreferenceWindowStatus.awaiting_candidate_preferences.value
+    app.interview_preference_window_opened_at = past
+    app.interview_preference_window_expires_at = past + timedelta(hours=1)
+    db.flush()
+
+    assert ensure_preference_window_expired_for_application(db, app.id) is True
+    db.refresh(app)
+    assert app.interview_preference_window_status == InterviewPreferenceWindowStatus.candidate_preferences_expired.value
+
+
+def test_submit_interview_preferences_rejects_date_out_of_range(db: Session, factory) -> None:
+    """Server rejects slot dates outside the same calendar window as available-days API."""
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile, state=ApplicationState.submitted.value)
+    app.current_stage = ApplicationStage.interview.value
+    app.state = ApplicationState.interview_pending.value
+    db.flush()
+    q_rows = [
+        {"id": "q1", "questionText": "A?", "sortOrder": 0},
+        {"id": "q2", "questionText": "B?", "sortOrder": 1},
+        {"id": "q3", "questionText": "C?", "sortOrder": 2},
+    ]
+    row = ai_interview_repository.upsert_draft(
+        db,
+        application_id=app.id,
+        questions=q_rows,
+        generated_from_signals=None,
+    )
+    ai_interview_repository.mark_approved(db, row, approved_by_user_id=user.id)
+    row.candidate_completed_at = datetime.now(tz=UTC)
+    db.flush()
+
+    far_tuesday = date(2099, 6, 2)
+    assert far_tuesday.weekday() < 5
+    with pytest.raises(HTTPException) as exc:
+        interview_preferences_service.submit_interview_preferences(
+            db,
+            app.id,
+            slots=[{"date": far_tuesday.isoformat(), "timeRangeCode": "09-10"}],
+        )
+    assert exc.value.status_code == 422
+    assert "диапазон" in str(exc.value.detail).lower()
+
+
+def test_submit_interview_preferences_rejected_when_commission_scheduled(db: Session, factory) -> None:
+    """TOCTOU guard: cannot persist preferences after commission scheduled InterviewSession."""
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile, state=ApplicationState.submitted.value)
+    app.current_stage = ApplicationStage.interview.value
+    app.state = ApplicationState.interview_pending.value
+    db.flush()
+    q_rows = [
+        {"id": "q1", "questionText": "A?", "sortOrder": 0},
+        {"id": "q2", "questionText": "B?", "sortOrder": 1},
+        {"id": "q3", "questionText": "C?", "sortOrder": 2},
+    ]
+    row = ai_interview_repository.upsert_draft(
+        db,
+        application_id=app.id,
+        questions=q_rows,
+        generated_from_signals=None,
+    )
+    ai_interview_repository.mark_approved(db, row, approved_by_user_id=user.id)
+    row.candidate_completed_at = datetime.now(tz=UTC)
+    db.flush()
+
+    days_out = interview_preferences_service.list_available_days(db, app.id)
+    first_date = days_out["days"][0]["date"]
+
+    admissions_repository.create_interview_session(
+        db,
+        app.id,
+        session_index=0,
+        interview_status="scheduled",
+        scheduled_at=datetime.now(tz=UTC),
+        scheduled_by_user_id=user.id,
+        interview_mode="zoom",
+        location_or_link="https://example.test/j",
+    )
+    db.flush()
+
+    with pytest.raises(HTTPException) as exc:
+        interview_preferences_service.submit_interview_preferences(
+            db,
+            app.id,
+            slots=[{"date": first_date, "timeRangeCode": "09-10"}],
+        )
+    assert exc.value.status_code == 409
+
+
+def test_get_candidate_ai_interview_status_scheduled_interview_null_without_commission_schedule(
+    db: Session, factory
+) -> None:
+    """No commission InterviewSession row: status returns scheduledInterview null (no 500)."""
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile, state=ApplicationState.submitted.value)
+    app.current_stage = ApplicationStage.interview.value
+    app.state = ApplicationState.interview_pending.value
+    db.flush()
+    q_rows = [
+        {"id": "q1", "questionText": "A?", "sortOrder": 0},
+        {"id": "q2", "questionText": "B?", "sortOrder": 1},
+        {"id": "q3", "questionText": "C?", "sortOrder": 2},
+    ]
+    row = ai_interview_repository.upsert_draft(
+        db,
+        application_id=app.id,
+        questions=q_rows,
+        generated_from_signals=None,
+    )
+    ai_interview_repository.mark_approved(db, row, approved_by_user_id=user.id)
+    row.candidate_completed_at = datetime.now(tz=UTC)
+    db.flush()
+
+    status = ai_interview_service.get_candidate_ai_interview_status(db, app.id)
+    assert status["aiInterviewCompleted"] is True
+    assert status["scheduledInterview"] is None
+
+
+def test_get_candidate_ai_interview_status_scheduled_interview_includes_reminder_fields(
+    db: Session, factory
+) -> None:
+    """Commission session with scheduled_at exposes API dict including reminderRequestedAt / reminderSentAt nulls."""
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile, state=ApplicationState.submitted.value)
+    app.current_stage = ApplicationStage.interview.value
+    app.state = ApplicationState.interview_pending.value
+    db.flush()
+    q_rows = [
+        {"id": "q1", "questionText": "A?", "sortOrder": 0},
+        {"id": "q2", "questionText": "B?", "sortOrder": 1},
+        {"id": "q3", "questionText": "C?", "sortOrder": 2},
+    ]
+    row = ai_interview_repository.upsert_draft(
+        db,
+        application_id=app.id,
+        questions=q_rows,
+        generated_from_signals=None,
+    )
+    ai_interview_repository.mark_approved(db, row, approved_by_user_id=user.id)
+    row.candidate_completed_at = datetime.now(tz=UTC)
+    db.flush()
+
+    sched = datetime(2030, 6, 15, 10, 0, tzinfo=UTC)
+    admissions_repository.create_interview_session(
+        db,
+        app.id,
+        session_index=0,
+        interview_status="scheduled",
+        scheduled_at=sched,
+        scheduled_by_user_id=user.id,
+        interview_mode="Zoom",
+        location_or_link="https://example.test/meeting",
+    )
+    db.flush()
+
+    status = ai_interview_service.get_candidate_ai_interview_status(db, app.id)
+    si = status["scheduledInterview"]
+    assert si is not None
+    assert si["sessionId"]
+    assert si["scheduledAt"]
+    assert si["interviewMode"] == "Zoom"
+    assert si["locationOrLink"] == "https://example.test/meeting"
+    assert si["reminderRequestedAt"] is None
+    assert si["reminderSentAt"] is None
+
+    view = ai_interview_service.build_commission_ai_interview_session_view(db, app.id)
+    cs = view["commissionSchedule"]["scheduledInterview"]
+    assert cs is not None
+    assert cs["reminderRequestedAt"] is None
+    assert cs["reminderSentAt"] is None

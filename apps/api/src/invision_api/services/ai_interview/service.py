@@ -18,10 +18,10 @@ from sqlalchemy.orm import Session
 from invision_api.commission.application import audit as commission_audit
 from invision_api.commission.application.service import rebuild_projection
 from invision_api.models.application import CandidateProfile
-from invision_api.models.enums import ApplicationStage
+from invision_api.models.enums import ApplicationStage, InterviewPreferenceWindowStatus
 from invision_api.repositories import ai_interview_repository
 from invision_api.repositories import admissions_repository
-from invision_api.services import audit_log_service
+from invision_api.services import audit_log_service, candidate_activity_service
 from invision_api.core.config import get_settings
 from invision_api.models.enums import DataCheckRunStatus
 from invision_api.services.ai_interview.context import build_interview_context
@@ -125,7 +125,7 @@ def generate_ai_interview_draft(
     ctx = build_interview_context(db, application_id)
     w = compute_signal_weight(_context_to_weight_summary(ctx))
     n = question_count_from_weight(w)
-    questions, gen_meta = generate_questions_llm(context=ctx, target_count=n)
+    questions, gen_meta = generate_questions_llm(context=ctx, target_count=n, application_id=application_id)
     for q in questions:
         q.pop("_questionTextSanitized", None)
     questions = _normalize_sort_orders(questions)
@@ -331,7 +331,8 @@ def get_approved_questions_for_candidate(db: Session, application_id: UUID) -> l
     if not app:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
     if app.current_stage != ApplicationStage.interview.value:
-        raise HTTPException(status_code=404, detail="Вопросы собеседования пока недоступны.")
+        # Not an error: caller may poll before redirect; avoid 404 spam in logs.
+        return []
 
     row = ai_interview_repository.get_question_set_for_application(db, application_id)
     if not row or row.status != "approved":
@@ -358,7 +359,7 @@ def list_candidate_answers_for_application(db: Session, application_id: UUID) ->
     if not app:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
     if app.current_stage != ApplicationStage.interview.value:
-        raise HTTPException(status_code=404, detail="Вопросы собеседования пока недоступны.")
+        return []
 
     row = ai_interview_repository.get_question_set_for_application(db, application_id)
     if not row or row.status != "approved":
@@ -406,6 +407,16 @@ def save_candidate_answers_stub(
             raise HTTPException(status_code=422, detail="Текст ответа слишком длинный.")
         ai_interview_repository.upsert_answer(db, application_id=application_id, question_id=qid, answer_text=text)
         saved += 1
+    prof = db.get(CandidateProfile, app.candidate_profile_id)
+    if prof:
+        candidate_activity_service.record_candidate_activity_event(
+            db,
+            application_id=application_id,
+            candidate_user_id=prof.user_id,
+            event_type="stage_action_started",
+            stage=app.current_stage,
+            metadata={"source": "ai_interview_answers", "saved": saved},
+        )
     return {"saved": saved}
 
 
@@ -456,6 +467,11 @@ def complete_candidate_ai_interview(db: Session, application_id: UUID) -> dict[s
     db.flush()
     rebuild_projection(db, application_id)
 
+    from invision_api.services.interview_preference_window.service import open_preference_window_on_ai_complete
+
+    open_preference_window_on_ai_complete(db, app)
+    rebuild_projection(db, application_id)
+
     prof = db.get(CandidateProfile, app.candidate_profile_id)
     actor_uid = prof.user_id if prof else None
     audit_log_service.write_audit(
@@ -471,6 +487,15 @@ def complete_candidate_ai_interview(db: Session, application_id: UUID) -> dict[s
         application_id,
         row.id,
     )
+    if actor_uid is not None:
+        candidate_activity_service.record_candidate_activity_event(
+            db,
+            application_id=application_id,
+            candidate_user_id=actor_uid,
+            event_type="ai_interview_completed",
+            occurred_at=now,
+            stage=app.current_stage,
+        )
 
     try_generate_and_persist_resolution_summary(db, application_id, row)
 
@@ -484,6 +509,12 @@ def complete_candidate_ai_interview(db: Session, application_id: UUID) -> dict[s
 
 
 def get_candidate_ai_interview_status(db: Session, application_id: UUID) -> dict[str, Any]:
+    from invision_api.services.commission_interview_scheduling.service import interview_session_to_api_dict
+    from invision_api.services.interview_preference_window.service import (
+        build_preference_window_payload_for_candidate,
+        get_commission_interview_session,
+    )
+
     app = admissions_repository.get_application_by_id(db, application_id)
     if not app:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
@@ -504,21 +535,40 @@ def get_candidate_ai_interview_status(db: Session, application_id: UUID) -> dict
                 qid = str(q.get("id") or "")
                 if qid and display_question_text(q) and qid in answered_ids:
                     n_answered += 1
+
+    pref_win = build_preference_window_payload_for_candidate(db, app)
+    sched_sess = get_commission_interview_session(db, application_id)
+    scheduled_interview = (
+        interview_session_to_api_dict(sched_sess)
+        if sched_sess and sched_sess.scheduled_at
+        else None
+    )
+
     return {
         "aiInterviewCompleted": ai_done,
         "preferencesSubmitted": prefs_done,
         "approvedQuestionCount": n_approved,
         "answeredQuestionCount": n_answered,
+        "preferenceWindow": pref_win,
+        "scheduledInterview": scheduled_interview,
     }
 
 
 def build_commission_ai_interview_session_view(db: Session, application_id: UUID) -> dict[str, Any]:
-    """Read-only Q/A + preferred slots for commission (persisted data only)."""
+    """Read-only Q/A + preferred slots + preference window + commission schedule for commission UI."""
+    from invision_api.services.commission_interview_scheduling.service import interview_session_to_api_dict
     from invision_api.services.interview_preferences.service import SLOT_LABEL_BY_CODE
+    from invision_api.services.interview_preference_window.service import (
+        ensure_preference_window_expired_for_application,
+        get_commission_interview_session,
+    )
 
     app_row = admissions_repository.get_application_by_id(db, application_id)
     if not app_row:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
+
+    ensure_preference_window_expired_for_application(db, application_id)
+    db.refresh(app_row)
 
     row = ai_interview_repository.get_question_set_for_application(db, application_id)
     completed_at = row.candidate_completed_at.isoformat() if row and row.candidate_completed_at else None
@@ -561,6 +611,26 @@ def build_commission_ai_interview_session_view(db: Session, application_id: UUID
     resolution_summary = row.resolution_summary if row else None
     resolution_error = row.resolution_summary_error if row else None
 
+    wst = app_row.interview_preference_window_status
+    wopen = app_row.interview_preference_window_opened_at
+    wexp = app_row.interview_preference_window_expires_at
+    remaining_sec: int | None = None
+    if wst == InterviewPreferenceWindowStatus.awaiting_candidate_preferences.value and wexp is not None:
+        remaining_sec = max(0, int((wexp - datetime.now(tz=UTC)).total_seconds()))
+
+    submitted_at_iso = (
+        app_row.interview_preferences_submitted_at.isoformat()
+        if app_row.interview_preferences_submitted_at
+        else None
+    )
+
+    commission_sess = get_commission_interview_session(db, application_id)
+    scheduled_interview = (
+        interview_session_to_api_dict(commission_sess)
+        if commission_sess and commission_sess.scheduled_at
+        else None
+    )
+
     return {
         "applicationId": str(application_id),
         "candidateId": str(app_row.candidate_profile_id),
@@ -568,6 +638,17 @@ def build_commission_ai_interview_session_view(db: Session, application_id: UUID
         "interviewCompletedAt": completed_at,
         "questionsAndAnswers": items,
         "preferredSlots": preferred_slots,
+        "candidatePreferencePanel": {
+            "preferredSlots": preferred_slots,
+            "preferencesSubmittedAt": submitted_at_iso,
+            "windowStatus": wst,
+            "windowOpenedAt": wopen.isoformat() if wopen else None,
+            "windowExpiresAt": wexp.isoformat() if wexp else None,
+            "remainingSeconds": remaining_sec,
+        },
+        "commissionSchedule": {
+            "scheduledInterview": scheduled_interview,
+        },
         "resolutionSummary": resolution_summary,
         "resolutionSummaryError": resolution_error,
     }

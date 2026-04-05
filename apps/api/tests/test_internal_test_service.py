@@ -77,3 +77,35 @@ def test_get_saved_answers_state_returns_answers_and_consents(db: Session, facto
     assert len(state["answers"]) == 1
     assert state["answers"][0]["question_id"] == str(q1.id)
     assert state["answers"][0]["selected_options"] == ["C"]
+
+def test_completion_percentage_recomputes_internal_test_from_db_not_stale_flag(db: Session, factory):
+    """internal_test row can have is_complete=False while answers+consents satisfy rules; review must recompute."""
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile)
+    questions = internal_test_service.list_questions(db)
+    if not questions:
+        questions = [_create_question(db, 1), _create_question(db, 2)]
+    db.commit()
+
+    internal_test_service.save_draft_answers(
+        db,
+        user,
+        answers=[{"question_id": str(q.id), "selected_options": ["A"]} for q in questions],
+        consent_privacy=True,
+        consent_parent=True,
+    )
+    db.refresh(app)
+    st = next((s for s in app.section_states if s.section_key == SectionKey.internal_test.value), None)
+    assert st is not None
+    st.is_complete = False
+    db.commit()
+    db.refresh(app)
+
+    pct, missing = application_service.completion_percentage(db, app)
+    assert SectionKey.internal_test not in missing
+    st2 = next((s for s in app.section_states if s.section_key == SectionKey.internal_test.value), None)
+    assert st2 is not None
+    assert st2.is_complete is True
+    assert pct > 0
+

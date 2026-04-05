@@ -1,7 +1,9 @@
 "use client";
 
 import Image from "next/image";
+import { useState } from "react";
 import { PillSegmentedControl } from "@/components/application/PillSegmentedControl";
+import { CommissionBoardHelpModal } from "@/components/commission/CommissionBoardHelpModal";
 import type { CommissionRange } from "@/lib/commission/types";
 
 type Props = {
@@ -19,12 +21,43 @@ const RANGE_OPTIONS: { value: CommissionRange; label: string }[] = [
 ];
 
 export function BoardToolbar({ search, range, onSearchChange, onRangeChange }: Props) {
+  const [helpOpen, setHelpOpen] = useState(false);
+
   return (
     <section style={{ display: "grid", gap: 16 }}>
+      <CommissionBoardHelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-        <h1 className="h2" style={{ margin: 0 }}>
-          Обзор заявлений
-        </h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <h1 className="h2" style={{ margin: 0 }}>
+            Обзор заявлений
+          </h1>
+          <button
+            type="button"
+            aria-label="Справка по странице обзора заявлений"
+            onClick={() => setHelpOpen(true)}
+            style={{
+              flexShrink: 0,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 14,
+              height: 14,
+              padding: 0,
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              lineHeight: 0,
+            }}
+          >
+            <Image
+              src="/assets/icons/material-symbols_info-rounded.svg"
+              alt=""
+              width={14}
+              height={14}
+              aria-hidden
+            />
+          </button>
+        </div>
         <label
           style={{
             position: "relative",
@@ -40,7 +73,7 @@ export function BoardToolbar({ search, range, onSearchChange, onRangeChange }: P
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
             aria-label="Поиск по заявкам"
-            style={{ paddingRight: 40, height: 38, borderRadius: 16 }}
+            style={{ paddingRight: 40, height: 38 }}
           />
           <Image
             src="/assets/icons/material-symbols_search-rounded.svg"

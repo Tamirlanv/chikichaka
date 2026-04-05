@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -16,21 +17,16 @@ from invision_api.models.enums import (
 )
 from invision_api.repositories import admissions_repository, commission_repository, data_check_repository
 from invision_api.services.data_check import orchestrator_service
+from invision_api.services.data_check import reconcile_service
 from invision_api.services.data_check.job_registry import REGISTRY
-from invision_api.services.data_check.status_service import TERMINAL_UNIT_STATUSES, compute_run_status
+from invision_api.services.data_check.status_service import (
+    TERMINAL_UNIT_STATUSES,
+    RunStatusComputation,
+    compute_run_status,
+)
 from invision_api.services.stage_transition_policy import TransitionContext, TransitionName, apply_transition
 
 logger = logging.getLogger(__name__)
-
-
-def _to_stage_status(run_status: str) -> str:
-    if run_status in {DataCheckRunStatus.pending.value, DataCheckRunStatus.running.value}:
-        return "in_review"
-    if run_status == DataCheckRunStatus.ready.value:
-        return "approved"
-    if run_status in {DataCheckRunStatus.partial.value, DataCheckRunStatus.failed.value}:
-        return "needs_attention"
-    return "in_review"
 
 
 def _update_analysis_job(
@@ -54,7 +50,28 @@ def _update_analysis_job(
     )
 
 
-_ADVANCE_STATUSES = {DataCheckRunStatus.ready.value, DataCheckRunStatus.partial.value}
+# Only a fully successful pipeline may auto-advance. ``partial`` means at least one
+# unit needs attention (optional failure, optional/required manual review, etc.) and
+# must not move the application to application_review without an explicit commission action.
+_ADVANCE_STATUSES = {DataCheckRunStatus.ready.value}
+
+
+def _aggregate_status_for_run(db: Session, run_id: UUID) -> RunStatusComputation:
+    """Recompute run aggregate from DB checks (source of truth for batch completion).
+
+    ``partial`` / ``failed`` / ``ready`` are only produced when every policy unit is in a
+    terminal unit status; until then the aggregate stays ``pending`` or ``running``. Skip
+    decisions must use this recomputation, not only ``run.overall_status``, so a stale row
+    cannot block remaining units or drop jobs while work is still outstanding.
+    """
+    checks = data_check_repository.list_checks_for_run(db, run_id)
+    status_map: dict[DataCheckUnitType, str] = {}
+    for c in checks:
+        try:
+            status_map[DataCheckUnitType(c.check_type)] = c.status
+        except ValueError:
+            continue
+    return compute_run_status(status_map)
 
 
 def _try_auto_advance(
@@ -66,28 +83,33 @@ def _try_auto_advance(
 ) -> None:
     """Auto-advance from initial_screening to application_review.
 
-    Fires when the data-check run reaches ``ready`` (all units green) or ``partial``
-    (only optional units failed/need-review).  ``failed`` (required units broken) stays
-    on initial_screening for manual commission intervention.
+    Fires only when the data-check run is ``ready`` (all units completed successfully
+    with no optional failures and no manual-review flags). ``partial`` and ``failed``
+    keep the application on initial_screening for follow-up or manual handling.
     """
     run_status = getattr(run_computed, "status", None)
-    app_stage = getattr(app, "current_stage", None) if app else None
 
     if not app:
         logger.warning("auto_advance_skip application=%s reason=app_is_none", application_id)
-        return
-    if app_stage != ApplicationStage.initial_screening.value:
-        logger.info("auto_advance_skip application=%s reason=wrong_stage stage=%s", application_id, app_stage)
         return
     if run_status not in _ADVANCE_STATUSES:
         logger.info("auto_advance_skip application=%s reason=status_not_ready run_status=%s", application_id, run_status)
         return
 
-    note = (
-        "Auto-advanced: all data-check units completed."
-        if run_status == DataCheckRunStatus.ready.value
-        else "Auto-advanced: required units completed; optional units need attention."
-    )
+    try:
+        db.refresh(app)
+    except Exception:
+        logger.warning("auto_advance_skip application=%s reason=refresh_failed", application_id)
+        return
+    if app.current_stage != ApplicationStage.initial_screening.value:
+        logger.info(
+            "auto_advance_skip application=%s reason=wrong_stage_after_refresh stage=%s",
+            application_id,
+            app.current_stage,
+        )
+        return
+
+    note = "Auto-advanced: all data-check units completed successfully."
     logger.info("auto_advance_firing application=%s run_status=%s", application_id, run_status)
     try:
         apply_transition(
@@ -103,6 +125,11 @@ def _try_auto_advance(
         )
         commission_repository.upsert_projection_for_application(db, app)
         logger.info("auto_advance_ok application=%s initial_screening -> application_review", application_id)
+    except ValueError as exc:
+        if "only from initial_screening" in str(exc):
+            logger.info("auto_advance_skip application=%s reason=idempotent stage_already_moved", application_id)
+            return
+        logger.exception("auto_advance_failed application=%s", application_id)
     except Exception:
         logger.exception("auto_advance_failed application=%s", application_id)
 
@@ -119,6 +146,14 @@ def run_unit(
     if not run:
         _update_analysis_job(db, analysis_job_id=analysis_job_id, status=JobStatus.failed.value, last_error="run_not_found")
         return
+    if not data_check_repository.run_has_canonical_policy_checks(db, run_id):
+        logger.warning(
+            "run_unit_skip non_canonical_run run=%s unit=%s",
+            run_id,
+            unit_type.value,
+        )
+        _update_analysis_job(db, analysis_job_id=analysis_job_id, status=JobStatus.completed.value)
+        return
     check = data_check_repository.get_check(db, run_id, unit_type.value)
     if not check:
         _update_analysis_job(
@@ -129,15 +164,61 @@ def run_unit(
         )
         return
 
+    aggregate = _aggregate_status_for_run(db, run_id)
+    if aggregate.status not in {
+        DataCheckRunStatus.pending.value,
+        DataCheckRunStatus.running.value,
+    }:
+        logger.info(
+            "run_unit_skip batch_complete run=%s aggregate=%s unit=%s",
+            run_id,
+            aggregate.status,
+            unit_type.value,
+        )
+        _update_analysis_job(db, analysis_job_id=analysis_job_id, status=JobStatus.completed.value)
+        return
+
+    if check.status in TERMINAL_UNIT_STATUSES:
+        logger.info(
+            "run_unit_skip terminal_check run=%s unit=%s check_status=%s",
+            run_id,
+            unit_type.value,
+            check.status,
+        )
+        try:
+            orchestrator_service.enqueue_ready_followup_jobs(db, application_id=application_id, run_id=run_id)
+        except Exception:
+            logger.exception("followup_enqueue_failed application=%s run=%s", application_id, run_id)
+        _update_analysis_job(db, analysis_job_id=analysis_job_id, status=JobStatus.completed.value)
+        return
+
     _update_analysis_job(db, analysis_job_id=analysis_job_id, status=JobStatus.running.value)
 
     now = datetime.now(tz=UTC)
-    data_check_repository.update_check_status(
+    claimed_check = data_check_repository.try_claim_unit_check_for_execution(
         db,
-        check=check,
-        status=DataCheckUnitStatus.running.value,
-        attempts=(check.attempts or 0) + 1,
+        run_id=run_id,
+        check_type=unit_type.value,
     )
+    if not claimed_check:
+        latest_check = data_check_repository.get_check(db, run_id, unit_type.value)
+        if latest_check and latest_check.status in TERMINAL_UNIT_STATUSES:
+            logger.info(
+                "run_unit_skip unit_already_terminal_after_claim run=%s unit=%s status=%s",
+                run_id,
+                unit_type.value,
+                latest_check.status,
+            )
+        else:
+            logger.info(
+                "run_unit_skip claim_not_acquired run=%s unit=%s current_status=%s",
+                run_id,
+                unit_type.value,
+                latest_check.status if latest_check else "missing",
+            )
+        _update_analysis_job(db, analysis_job_id=analysis_job_id, status=JobStatus.completed.value)
+        return
+    check = claimed_check
     data_check_repository.upsert_unit_result(
         db,
         run_id=run_id,
@@ -150,10 +231,10 @@ def run_unit(
         explainability=[],
         manual_review_required=False,
         attempts=check.attempts,
-        started_at=now,
+        started_at=check.started_at or now,
         finished_at=None,
     )
-    if run.overall_status == DataCheckRunStatus.pending.value:
+    if run.overall_status in {DataCheckRunStatus.pending.value, "processing"}:
         data_check_repository.update_run_status(
             db,
             run=run,
@@ -171,6 +252,13 @@ def run_unit(
     db.flush()
 
     processor = REGISTRY[unit_type]
+    _t0 = time.monotonic()
+    logger.info(
+        "data_check_unit_start run_id=%s application_id=%s unit_type=%s",
+        run_id,
+        application_id,
+        unit_type.value,
+    )
     try:
         result = processor(db, application_id, run.candidate_id, run_id)
         final_status = result.status
@@ -226,43 +314,23 @@ def run_unit(
             started_at=check.started_at,
             finished_at=check.finished_at,
         )
+    finally:
+        elapsed_ms = int((time.monotonic() - _t0) * 1000)
+        logger.info(
+            "data_check_unit_processor_done run_id=%s application_id=%s unit_type=%s elapsed_ms=%s",
+            run_id,
+            application_id,
+            unit_type.value,
+            elapsed_ms,
+        )
 
-    checks = data_check_repository.list_checks_for_run(db, run_id)
-    status_map = {}
-    for c in checks:
-        try:
-            status_map[DataCheckUnitType(c.check_type)] = c.status
-        except ValueError:
-            continue
-    run_computed = compute_run_status(status_map)
-    data_check_repository.update_run_status(
+    run_computed = _aggregate_status_for_run(db, run_id)
+    app = reconcile_service.persist_initial_screening_after_aggregate(
         db,
         run=run,
-        status=run_computed.status,
-        warnings=run_computed.warnings,
-        errors=run_computed.errors,
-        explainability=run_computed.explainability,
-    )
-
-    stage_status = _to_stage_status(run_computed.status)
-    commission_repository.set_stage_status(
-        db,
+        run_computed=run_computed,
         application_id=application_id,
-        stage=ApplicationStage.initial_screening.value,
-        status=stage_status,
-        actor_user_id=None,
-        reason_comment=f"Data-check status updated: {run_computed.status}",
     )
-    commission_repository.set_attention_flag(
-        db,
-        application_id=application_id,
-        stage=ApplicationStage.initial_screening.value,
-        value=run_computed.manual_review_required,
-    )
-
-    app = data_check_repository.get_application(db, application_id)
-    if app:
-        commission_repository.upsert_projection_for_application(db, app)
 
     logger.info(
         "run_unit_completed unit=%s application=%s computed_status=%s app_stage=%s",

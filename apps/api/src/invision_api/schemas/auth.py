@@ -1,6 +1,8 @@
 import re
 from uuid import UUID
 
+from typing import Literal
+
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
@@ -43,6 +45,7 @@ class RegisterPendingResponse(BaseModel):
 class RegisterCompleteRequest(BaseModel):
     email: EmailStr
     code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+    education_program: Literal["foundation", "bachelor"] | None = None
 
 
 class UserPublic(BaseModel):

@@ -37,7 +37,13 @@ def test_row_from_response_maps_exam_document() -> None:
     data = {
         "documentType": "ielts",
         "processingStatus": "processed",
-        "extractedFields": {"totalScore": 6.5, "ocrDocumentType": "ielts"},
+        "extractedFields": {
+            "totalScore": 6.5,
+            "ocrDocumentType": "ielts",
+            "targetFieldFound": True,
+            "targetFieldType": "ielts_overall_band",
+            "targetFieldEvidence": "overall band score 6.5",
+        },
         "scoreLabel": "overall band score",
         "passedThreshold": True,
         "thresholdType": "ielts",
@@ -53,7 +59,9 @@ def test_row_from_response_maps_exam_document() -> None:
         "explainability": [],
         "confidence": 0.85,
     }
-    row = _row_from_response(app_id, doc_id, data)
+    row = _row_from_response(app_id, doc_id, data, document_role="english")
     assert row.document_type == "ielts"
     assert row.extracted_fields["examDocument"]["detectedScore"] == 6.5
     assert row.extracted_fields["examDocument"]["passedThreshold"] is True
+    assert row.extracted_fields["examDocument"]["targetFieldFound"] is True
+    assert row.extracted_fields["examDocument"]["targetFieldType"] == "ielts_overall_band"

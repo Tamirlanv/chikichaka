@@ -97,6 +97,11 @@ a:hover {
   white-space: nowrap;
 }
 
+/* Нативные кнопки — regular (350). Специфичность :where() = 0, не перебивает .btn и классы на элементе. */
+:where(button, input[type="submit"], input[type="button"], input[type="reset"]) {
+  font-weight: var(--fw-regular);
+}
+
 a.btn {
   font-weight: var(--fw-regular);
   color: #fff;
@@ -137,6 +142,29 @@ a.btn.secondary:hover {
   color: var(--inv-text);
 }
 
+/* Единая сетка кнопок для модальных окон:
+   две кнопки заполняют строку, одиночная кнопка — всю ширину. */
+.modal-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.modal-actions--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.modal-actions .btn {
+  width: 100%;
+}
+
+@media (max-width: 520px) {
+  .modal-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* Акцент (лайм) — опционально, те же отступы и типографика */
 .btn.accent {
   background: #98da00;
@@ -163,10 +191,24 @@ a.btn.accent {
   font-size: 16px;
   font-weight: 350;
   font-family: var(--font);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .input::placeholder {
   color: var(--inv-border);
+}
+
+.input:hover:not(:disabled) {
+  border-color: #c8c8c8;
+}
+
+.input:focus,
+.input:focus-visible {
+  outline: none;
+  border-color: #98da00;
+  box-shadow: 0 0 0 3px rgba(152, 218, 0, 0.12);
 }
 
 .label {

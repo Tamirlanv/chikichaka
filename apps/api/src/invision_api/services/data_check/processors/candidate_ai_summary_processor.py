@@ -21,15 +21,19 @@ def _fallback_summary(*, aggregate_payload: dict[str, Any], attention_flags: lis
     )
 
 
-def run_candidate_ai_summary_processing(db: Session, *, application_id: UUID, run_id: UUID) -> UnitExecutionResult:
-    aggregate = data_check_repository.get_candidate_signals_aggregate(db, application_id)
-    if not aggregate:
-        return UnitExecutionResult(
-            status="failed",
-            errors=["Signals aggregate is missing."],
-            explainability=["Невозможно собрать AI summary без агрегированных сигналов."],
-        )
+def _fallback_summary_without_aggregate(*, compact_units: dict[str, dict[str, Any]]) -> str:
+    completed = [unit for unit, data in compact_units.items() if data.get("status") == "completed"]
+    problematic = [unit for unit, data in compact_units.items() if data.get("status") not in {"completed", "pending"}]
+    completed_txt = ", ".join(sorted(completed)[:6]) if completed else "нет завершённых блоков"
+    problematic_txt = ", ".join(sorted(problematic)[:6]) if problematic else "нет явных ошибок"
+    return (
+        "AI-сводка сформирована в деградированном режиме: агрегированные сигналы недоступны. "
+        f"Завершённые блоки: {completed_txt}. Проблемные блоки: {problematic_txt}. "
+        "Требуется ручная проверка комиссии."
+    )
 
+
+def run_candidate_ai_summary_processing(db: Session, *, application_id: UUID, run_id: UUID) -> UnitExecutionResult:
     unit_results = data_check_repository.list_unit_results_for_run(db, run_id)
     compact_units = {
         row.unit_type: {
@@ -39,6 +43,43 @@ def run_candidate_ai_summary_processing(db: Session, *, application_id: UUID, ru
         }
         for row in unit_results
     }
+    aggregate = data_check_repository.get_candidate_signals_aggregate(db, application_id)
+    if not aggregate:
+        summary_text = _fallback_summary_without_aggregate(compact_units=compact_units)
+        meta = AIReviewMetadata(
+            application_id=application_id,
+            model="internal_fallback",
+            prompt_version="data_check_v1_degraded",
+            summary_text=summary_text,
+            flags={
+                "provider": "internal_fallback",
+                "decision_authority": "human_only",
+                "data_check_run_id": str(run_id),
+                "degraded_mode": True,
+            },
+            explainability_snapshot={
+                "source": "data_check_candidate_ai_summary",
+                "notes": [
+                    "Signals aggregate missing; summary generated from available per-unit outputs only.",
+                ],
+            },
+            authenticity_risk_score=None,
+            decision_authority="human_only",
+        )
+        db.add(meta)
+        db.flush()
+        return UnitExecutionResult(
+            status="manual_review_required",
+            payload={
+                "aiReviewId": str(meta.id),
+                "summary": summary_text,
+                "provider": "internal_fallback",
+            },
+            warnings=["Signals aggregate is missing; degraded summary generated."],
+            explainability=["Итоговая сводка сформирована из доступных unit outputs без aggregate."],
+            manual_review_required=True,
+        )
+
     llm_payload = {
         "application_id": str(application_id),
         "run_id": str(run_id),

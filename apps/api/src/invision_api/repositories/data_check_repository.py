@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from sqlalchemy import and_
@@ -19,6 +19,16 @@ from invision_api.models.application import (
 from invision_api.models.application_raw_submission_snapshot import ApplicationRawSubmissionSnapshot
 from invision_api.models.candidate_signals_aggregate import CandidateSignalsAggregate
 from invision_api.models.candidate_validation_orchestration import CandidateValidationCheck, CandidateValidationRun
+from invision_api.models.enums import DataCheckRunStatus, DataCheckUnitStatus, DataCheckUnitType
+
+# Run rows may still carry legacy ORM default "processing" until migration; sweep/SLA must see them.
+_NON_TERMINAL_RUN_STATUSES_FOR_SWEEP = (
+    DataCheckRunStatus.pending.value,
+    DataCheckRunStatus.running.value,
+    "processing",
+)
+_ACTIVE_RUN_STATUSES = frozenset(_NON_TERMINAL_RUN_STATUSES_FOR_SWEEP)
+_CANONICAL_CHECK_TYPES = frozenset(unit.value for unit in DataCheckUnitType)
 from invision_api.models.data_check_unit_result import DataCheckUnitResult
 
 
@@ -108,6 +118,61 @@ def list_runs_for_application(db: Session, application_id: UUID) -> list[Candida
     )
 
 
+def _list_check_types_for_run(db: Session, run_id: UUID) -> set[str]:
+    rows = db.scalars(
+        select(CandidateValidationCheck.check_type).where(CandidateValidationCheck.run_id == run_id)
+    ).all()
+    return {str(v) for v in rows if isinstance(v, str)}
+
+
+def run_has_canonical_policy_checks(db: Session, run_id: UUID) -> bool:
+    """Canonical run contains exactly the policy-defined unit checks."""
+    return _list_check_types_for_run(db, run_id) == _CANONICAL_CHECK_TYPES
+
+
+def run_has_unknown_check_types(db: Session, run_id: UUID) -> bool:
+    check_types = _list_check_types_for_run(db, run_id)
+    return any(check_type not in _CANONICAL_CHECK_TYPES for check_type in check_types)
+
+
+def resolve_canonical_run_for_application(
+    db: Session,
+    application_id: UUID,
+    *,
+    active_only: bool = False,
+) -> CandidateValidationRun | None:
+    """Return newest canonical run for application.
+
+    Canonical means the run has the full policy check-set; this avoids selecting
+    external/legacy partial runs for readiness and transitions.
+    """
+    for run in list_runs_for_application(db, application_id):
+        if active_only and run.overall_status not in _ACTIVE_RUN_STATUSES:
+            continue
+        if run_has_canonical_policy_checks(db, run.id):
+            return run
+    return None
+
+
+def resolve_preferred_run_for_application(
+    db: Session,
+    application_id: UUID,
+    *,
+    active_only: bool = False,
+) -> CandidateValidationRun | None:
+    """Prefer canonical run; fallback to newest run that has only known policy unit types."""
+    canonical = resolve_canonical_run_for_application(db, application_id, active_only=active_only)
+    if canonical is not None:
+        return canonical
+    for run in list_runs_for_application(db, application_id):
+        if active_only and run.overall_status not in _ACTIVE_RUN_STATUSES:
+            continue
+        if run_has_unknown_check_types(db, run.id):
+            continue
+        return run
+    return None
+
+
 def get_run(db: Session, run_id: UUID) -> CandidateValidationRun | None:
     return db.get(CandidateValidationRun, run_id)
 
@@ -143,6 +208,80 @@ def get_check(db: Session, run_id: UUID, check_type: str) -> CandidateValidation
             CandidateValidationCheck.check_type == check_type,
         )
     ).first()
+
+
+def repair_missing_policy_checks_for_run(
+    db: Session,
+    *,
+    run_id: UUID,
+    application_id: UUID,
+) -> int:
+    """Create missing policy checks/results for a run if it has no unknown check types."""
+    if run_has_unknown_check_types(db, run_id):
+        return 0
+    existing = _list_check_types_for_run(db, run_id)
+    missing = [check_type for check_type in _CANONICAL_CHECK_TYPES if check_type not in existing]
+    if not missing:
+        return 0
+
+    created = 0
+    for check_type in missing:
+        create_check(
+            db,
+            run_id=run_id,
+            check_type=check_type,
+            status=DataCheckUnitStatus.pending.value,
+            result_payload=None,
+        )
+        upsert_unit_result(
+            db,
+            run_id=run_id,
+            application_id=application_id,
+            unit_type=check_type,
+            status=DataCheckUnitStatus.pending.value,
+            result_payload=None,
+            warnings=[],
+            errors=[],
+            explainability=[],
+            manual_review_required=False,
+            attempts=0,
+            started_at=None,
+            finished_at=None,
+        )
+        created += 1
+    return created
+
+
+def try_claim_unit_check_for_execution(
+    db: Session,
+    *,
+    run_id: UUID,
+    check_type: str,
+    from_statuses: tuple[str, ...] = (
+        DataCheckUnitStatus.pending.value,
+        DataCheckUnitStatus.queued.value,
+    ),
+) -> CandidateValidationCheck | None:
+    """Atomically claim a unit check for execution (`pending/queued -> running`)."""
+    now = datetime.now(tz=UTC)
+    result = db.execute(
+        update(CandidateValidationCheck)
+        .where(
+            CandidateValidationCheck.run_id == run_id,
+            CandidateValidationCheck.check_type == check_type,
+            CandidateValidationCheck.status.in_(from_statuses),
+        )
+        .values(
+            status=DataCheckUnitStatus.running.value,
+            attempts=func.coalesce(CandidateValidationCheck.attempts, 0) + 1,
+            started_at=func.coalesce(CandidateValidationCheck.started_at, now),
+            finished_at=None,
+            last_error=None,
+        )
+    )
+    if (result.rowcount or 0) <= 0:
+        return None
+    return get_check(db, run_id, check_type)
 
 
 def update_check_status(
@@ -329,12 +468,28 @@ def latest_ai_review(db: Session, application_id: UUID) -> AIReviewMetadata | No
 
 
 def list_stuck_runs(db: Session, *, stale_threshold: datetime) -> list[CandidateValidationRun]:
-    """Return runs still in pending/running whose last update is older than *stale_threshold*."""
+    """Return runs still in pending/running (incl. legacy ``processing``) older than *stale_threshold*."""
     return list(
         db.scalars(
             select(CandidateValidationRun).where(
-                CandidateValidationRun.overall_status.in_(["pending", "running"]),
+                CandidateValidationRun.overall_status.in_(_NON_TERMINAL_RUN_STATUSES_FOR_SWEEP),
                 CandidateValidationRun.updated_at < stale_threshold,
+            )
+        ).all()
+    )
+
+
+def list_runs_past_processing_sla(db: Session, *, sla_deadline: datetime) -> list[CandidateValidationRun]:
+    """Return non-terminal runs whose wall-clock age (``created_at``) exceeds the SLA window.
+
+    Used to avoid indefinite blue/processing when ``updated_at`` keeps moving due to slow but
+    sequential unit completion.
+    """
+    return list(
+        db.scalars(
+            select(CandidateValidationRun).where(
+                CandidateValidationRun.overall_status.in_(_NON_TERMINAL_RUN_STATUSES_FOR_SWEEP),
+                CandidateValidationRun.created_at < sla_deadline,
             )
         ).all()
     )
@@ -346,13 +501,17 @@ def list_stuck_checks(
     run_id: UUID,
     stale_threshold: datetime,
 ) -> list[CandidateValidationCheck]:
-    """Return checks within a run that are queued/running and older than *stale_threshold*."""
+    """Return checks within a run that are still in-flight and older than *stale_threshold*.
+
+    Includes ``pending`` so units that never transitioned to ``queued`` (failed enqueue at
+    submit) can be escalated by the same sweep path as stale ``queued``/``running``.
+    """
     return list(
         db.scalars(
             select(CandidateValidationCheck).where(
                 and_(
                     CandidateValidationCheck.run_id == run_id,
-                    CandidateValidationCheck.status.in_(["queued", "running"]),
+                    CandidateValidationCheck.status.in_(["pending", "queued", "running"]),
                     CandidateValidationCheck.updated_at < stale_threshold,
                 )
             )

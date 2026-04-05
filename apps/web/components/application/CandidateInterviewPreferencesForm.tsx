@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ApiError } from "@/lib/api-client";
 import {
   getInterviewPreferenceAvailableDays,
   getInterviewPreferenceAvailableSlots,
@@ -8,6 +9,7 @@ import {
   type InterviewPreferenceDay,
   type InterviewPreferenceSlot,
 } from "@/lib/candidate-ai-interview";
+import styles from "./CandidateInterviewPreferencesForm.module.css";
 
 type Row = { day: string | null; timeCode: string | null };
 
@@ -17,13 +19,18 @@ const EMPTY_ROWS: Row[] = [
   { day: null, timeCode: null },
 ];
 
+const LEAD_COPY =
+  "Укажите в ближайшее время (1ч.) как минимум одно удобное время для собеседование, иначе время собеседования будет назначено автоматически";
+
 type Props = {
   /** When true, form is read-only / hidden submit */
   disabled?: boolean;
   onSubmitted: () => void;
+  /** After 409 (e.g. commission scheduled first) — refetch application status */
+  onConflict?: () => void | Promise<void>;
 };
 
-export function CandidateInterviewPreferencesForm({ disabled, onSubmitted }: Props) {
+export function CandidateInterviewPreferencesForm({ disabled, onSubmitted, onConflict }: Props) {
   const [days, setDays] = useState<InterviewPreferenceDay[]>([]);
   const [rows, setRows] = useState<Row[]>(EMPTY_ROWS);
   const [slotsByDate, setSlotsByDate] = useState<Record<string, InterviewPreferenceSlot[]>>({});
@@ -102,6 +109,9 @@ export function CandidateInterviewPreferencesForm({ disabled, onSubmitted }: Pro
       await postInterviewPreferencesSubmit(filled);
       onSubmitted();
     } catch (e) {
+      if (e instanceof ApiError && e.status === 409 && onConflict) {
+        await onConflict();
+      }
       setError(e instanceof Error ? e.message : "Не удалось сохранить");
       await loadDays();
       setSlotsByDate({});
@@ -111,98 +121,88 @@ export function CandidateInterviewPreferencesForm({ disabled, onSubmitted }: Pro
   }
 
   if (loadingDays) {
-    return <p style={{ margin: 0, fontSize: 14, color: "#626262" }}>Загрузка доступных дней…</p>;
+    return <p className={styles.loading}>Загрузка доступных дней…</p>;
   }
 
   if (days.length === 0) {
     return (
-      <p style={{ margin: 0, fontSize: 14, color: "#626262" }}>
-        Сейчас нет свободных слотов для выбора. Попробуйте позже или свяжитесь с приёмной комиссией.
+      <p className={styles.empty}>
+        Не удалось загрузить календарь доступных дней. Обновите страницу или попробуйте позже.
       </p>
     );
   }
 
   return (
-    <div style={{ display: "grid", gap: 16, maxWidth: 480 }}>
-      <div>
-        <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 600, color: "#262626" }}>Удобное время для собеседования</h3>
-        <p style={{ margin: 0, fontSize: 14, color: "#626262", lineHeight: 1.4 }}>
-          Если вы отметите удобные дни, собеседование будет назначено автоматически. Укажите до трёх вариантов.
-        </p>
+    <div className={styles.wrap}>
+      <div className={styles.intro}>
+        <h2 className={styles.title}>Удобное время</h2>
+        <p className={styles.lead}>{LEAD_COPY}</p>
+      </div>
+      <hr className={styles.divider} />
+      <p className={styles.hint}>Можно указать до трёх вариантов (будние дни, рабочее время).</p>
+
+      <div className={styles.variants}>
+        {[0, 1, 2].map((idx) => {
+          const r = rows[idx]!;
+          const slots = r.day ? slotsByDate[r.day] ?? [] : [];
+          return (
+            <div key={idx} className={styles.variantRow}>
+              <p className={styles.variantLabel}>Вариант {idx + 1}</p>
+              <div className={styles.selectRow}>
+                <select
+                  className={styles.select}
+                  aria-label={`Вариант ${idx + 1}: день`}
+                  value={r.day ?? ""}
+                  disabled={disabled || pending}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (!v) {
+                      setRows((prev) => {
+                        const n = [...prev];
+                        n[idx] = { day: null, timeCode: null };
+                        return n;
+                      });
+                    } else {
+                      void onDaySelect(idx, v);
+                    }
+                  }}
+                >
+                  <option value="">День</option>
+                  {days.map((d) => (
+                    <option key={d.date} value={d.date}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className={styles.select}
+                  aria-label={`Вариант ${idx + 1}: время`}
+                  value={r.timeCode ?? ""}
+                  disabled={disabled || pending || !r.day}
+                  onChange={(e) => onTimeSelect(idx, e.target.value)}
+                >
+                  <option value="">Время</option>
+                  {slots.map((s) => (
+                    <option key={s.timeRangeCode} value={s.timeRangeCode}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      {[0, 1, 2].map((idx) => {
-        const r = rows[idx]!;
-        const slots = r.day ? slotsByDate[r.day] ?? [] : [];
-        return (
-          <div key={idx} style={{ display: "grid", gap: 8 }}>
-            <span style={{ fontSize: 13, color: "#626262" }}>Вариант {idx + 1}</span>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              <select
-                className="input"
-                style={{ minWidth: 220, height: 38, borderRadius: 8 }}
-                value={r.day ?? ""}
-                disabled={disabled || pending}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (!v) {
-                    setRows((prev) => {
-                      const n = [...prev];
-                      n[idx] = { day: null, timeCode: null };
-                      return n;
-                    });
-                  } else {
-                    void onDaySelect(idx, v);
-                  }
-                }}
-              >
-                <option value="">— День —</option>
-                {days.map((d) => (
-                  <option key={d.date} value={d.date}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="input"
-                style={{ minWidth: 200, height: 38, borderRadius: 8 }}
-                value={r.timeCode ?? ""}
-                disabled={disabled || pending || !r.day}
-                onChange={(e) => onTimeSelect(idx, e.target.value)}
-              >
-                <option value="">— Время —</option>
-                {slots.map((s) => (
-                  <option key={s.timeRangeCode} value={s.timeRangeCode}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        );
-      })}
-
-      {error ? (
-        <p style={{ margin: 0, fontSize: 14, color: "#c62828" }}>{error}</p>
-      ) : null}
+      {error ? <p className={styles.error}>{error}</p> : null}
 
       <button
         type="button"
-        className="btn"
-        style={{
-          justifySelf: "start",
-          padding: "10px 20px",
-          borderRadius: 12,
-          border: 0,
-          background: canSubmit && !disabled && !pending ? "#98da00" : "#ccc",
-          color: "#fff",
-          cursor: canSubmit && !disabled && !pending ? "pointer" : "not-allowed",
-          fontWeight: 500,
-        }}
+        className={styles.submit}
         disabled={!canSubmit || disabled || pending}
         onClick={() => void handleSubmit()}
       >
-        {pending ? "Сохранение…" : "Готово"}
+        {pending ? "Сохранение…" : "Подтвердить"}
       </button>
     </div>
   );

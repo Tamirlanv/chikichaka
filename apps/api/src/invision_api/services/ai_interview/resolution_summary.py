@@ -124,7 +124,9 @@ def _build_user_payload(
     }
 
 
-def generate_resolution_summary_llm(user_payload: dict[str, Any]) -> dict[str, Any]:
+def generate_resolution_summary_llm(
+    user_payload: dict[str, Any], *, application_id: str | None = None
+) -> dict[str, Any]:
     """Call OpenAI JSON mode; validate; return storable dict including generatedAt."""
     settings = get_settings()
     if not settings.openai_api_key:
@@ -149,6 +151,8 @@ def generate_resolution_summary_llm(user_payload: dict[str, Any]) -> dict[str, A
         compact_payload={},
         system_prompt=system,
         user_message=user_message,
+        snapshot_flow="ai_interview_resolution_summary",
+        snapshot_application_id=application_id or "",
     )
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     logger.info("resolution_summary: LLM ok in %sms", elapsed_ms)
@@ -186,7 +190,7 @@ def try_generate_and_persist_resolution_summary(
 
     try:
         payload = _build_user_payload(db, application_id, row)
-        summary = generate_resolution_summary_llm(payload)
+        summary = generate_resolution_summary_llm(payload, application_id=str(application_id))
         row.resolution_summary = summary
         row.resolution_summary_error = None
         db.flush()

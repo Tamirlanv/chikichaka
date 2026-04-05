@@ -8,6 +8,7 @@ import { BoardToolbar } from "@/components/commission/BoardToolbar";
 import { MetricsRow } from "@/components/commission/MetricsRow";
 import { BoardContainer } from "@/components/commission/BoardContainer";
 import { getBoardMetrics, rangeFromQuery } from "@/lib/commission/query";
+import { useCommissionSidebarOpen } from "@/lib/commission/use-commission-sidebar-open";
 import type { CommissionBoardFilters, CommissionBoardMetrics, CommissionRange } from "@/lib/commission/types";
 import styles from "./page.module.css";
 
@@ -32,7 +33,7 @@ function CommissionPageInner() {
   const params = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const { isSidebarOpen, setIsSidebarOpen } = useCommissionSidebarOpen();
 
   const [search, setSearch] = useState(params.get("search") ?? "");
   const [program, setProgram] = useState<string | null>(params.get("program"));
@@ -40,8 +41,8 @@ function CommissionPageInner() {
   const [metrics, setMetrics] = useState<CommissionBoardMetrics>({
     totalApplications: 0,
     todayApplications: 0,
-    needsAttention: 0,
-    aiRecommended: 0,
+    foundationApplications: 0,
+    bachelorApplications: 0,
   });
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -107,9 +108,10 @@ function CommissionPageInner() {
 
         {msg ? <p className="error">{msg}</p> : null}
 
-        <BoardContainer filters={filters} onError={setMsg} />
+        <div className={styles.boardStripBleed}>
+          <BoardContainer filters={filters} onError={setMsg} />
+        </div>
       </main>
     </div>
   );
 }
-

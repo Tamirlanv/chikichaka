@@ -25,15 +25,15 @@ UNIT_POLICIES: dict[DataCheckUnitType, DataCheckUnitPolicy] = {
     ),
     DataCheckUnitType.link_validation: DataCheckUnitPolicy(
         unit_type=DataCheckUnitType.link_validation,
-        required=False,
+        required=True,
     ),
     DataCheckUnitType.video_validation: DataCheckUnitPolicy(
         unit_type=DataCheckUnitType.video_validation,
-        required=False,
+        required=True,
     ),
     DataCheckUnitType.certificate_validation: DataCheckUnitPolicy(
         unit_type=DataCheckUnitType.certificate_validation,
-        required=False,
+        required=True,
     ),
     DataCheckUnitType.signals_aggregation: DataCheckUnitPolicy(
         unit_type=DataCheckUnitType.signals_aggregation,
@@ -43,6 +43,9 @@ UNIT_POLICIES: dict[DataCheckUnitType, DataCheckUnitPolicy] = {
             DataCheckUnitType.motivation_processing,
             DataCheckUnitType.growth_path_processing,
             DataCheckUnitType.achievements_processing,
+            DataCheckUnitType.link_validation,
+            DataCheckUnitType.video_validation,
+            DataCheckUnitType.certificate_validation,
         ),
     ),
     DataCheckUnitType.candidate_ai_summary: DataCheckUnitPolicy(
@@ -58,6 +61,30 @@ TERMINAL_UNIT_STATUSES = {
     DataCheckUnitStatus.manual_review_required.value,
 }
 
+_UNIT_FAILED_REASON_RU: dict[DataCheckUnitType, str] = {
+    DataCheckUnitType.test_profile_processing: "Не удалось обработать результаты теста.",
+    DataCheckUnitType.motivation_processing: "Не удалось полностью обработать раздел «Мотивация».",
+    DataCheckUnitType.growth_path_processing: "Не удалось полностью обработать раздел «Путь».",
+    DataCheckUnitType.achievements_processing: "Не удалось полностью обработать раздел «Достижения».",
+    DataCheckUnitType.link_validation: "Не удалось корректно проверить ссылки.",
+    DataCheckUnitType.video_validation: "Не удалось корректно обработать видео-презентацию.",
+    DataCheckUnitType.certificate_validation: "Не удалось автоматически обработать сертификаты.",
+    DataCheckUnitType.signals_aggregation: "Не удалось собрать полную сводку сигналов по заявке.",
+    DataCheckUnitType.candidate_ai_summary: "Не удалось собрать итоговую AI-сводку.",
+}
+
+_UNIT_MANUAL_REASON_RU: dict[DataCheckUnitType, str] = {
+    DataCheckUnitType.test_profile_processing: "Требуется ручная проверка результатов теста.",
+    DataCheckUnitType.motivation_processing: "Требуется ручная проверка раздела «Мотивация».",
+    DataCheckUnitType.growth_path_processing: "Требуется ручная проверка раздела «Путь».",
+    DataCheckUnitType.achievements_processing: "Требуется ручная проверка раздела «Достижения».",
+    DataCheckUnitType.link_validation: "Требуется ручная проверка ссылок.",
+    DataCheckUnitType.video_validation: "Не удалось корректно обработать видео-презентацию.",
+    DataCheckUnitType.certificate_validation: "Не удалось автоматически обработать сертификаты.",
+    DataCheckUnitType.signals_aggregation: "Часть итоговых сводок требует ручной проверки.",
+    DataCheckUnitType.candidate_ai_summary: "Не удалось собрать итоговую AI-сводку.",
+}
+
 
 @dataclass(frozen=True)
 class RunStatusComputation:
@@ -66,6 +93,21 @@ class RunStatusComputation:
     errors: list[str]
     explainability: list[str]
     manual_review_required: bool
+
+
+def build_commission_human_issues(statuses: dict[DataCheckUnitType, str]) -> tuple[list[str], list[str]]:
+    """Return human-readable (RU) warnings/errors from canonical unit statuses."""
+    warnings: list[str] = []
+    errors: list[str] = []
+    for unit in UNIT_POLICIES:
+        status = statuses.get(unit, DataCheckUnitStatus.pending.value)
+        if status == DataCheckUnitStatus.manual_review_required.value:
+            warnings.append(_UNIT_MANUAL_REASON_RU.get(unit, "Требуется ручная проверка этого блока."))
+        elif status == DataCheckUnitStatus.failed.value:
+            errors.append(_UNIT_FAILED_REASON_RU.get(unit, "Не удалось обработать этот блок автоматически."))
+
+    # Keep stable order, remove duplicates.
+    return list(dict.fromkeys(warnings)), list(dict.fromkeys(errors))
 
 
 def dependencies_met(*, unit: DataCheckUnitType, statuses: dict[DataCheckUnitType, str]) -> bool:
@@ -79,17 +121,18 @@ def dependencies_met(*, unit: DataCheckUnitType, statuses: dict[DataCheckUnitTyp
 
 
 def compute_run_status(statuses: dict[DataCheckUnitType, str]) -> RunStatusComputation:
-    if not statuses:
-        return RunStatusComputation(
-            status=DataCheckRunStatus.pending.value,
-            warnings=[],
-            errors=[],
-            explainability=[],
-            manual_review_required=False,
-        )
+    """Aggregate run status from per-unit statuses.
 
-    any_started = any(s != DataCheckUnitStatus.pending.value for s in statuses.values())
-    any_non_terminal = any(s not in TERMINAL_UNIT_STATUSES for s in statuses.values())
+    Every unit type in ``UNIT_POLICIES`` must be accounted for. Missing keys are treated as
+    ``pending`` so an incomplete map cannot yield ``ready`` (avoids premature auto-advance).
+    Unknown keys in ``statuses`` are ignored.
+    """
+    canonical: dict[DataCheckUnitType, str] = {}
+    for unit in UNIT_POLICIES:
+        canonical[unit] = statuses[unit] if unit in statuses else DataCheckUnitStatus.pending.value
+
+    any_started = any(s != DataCheckUnitStatus.pending.value for s in canonical.values())
+    any_non_terminal = any(s not in TERMINAL_UNIT_STATUSES for s in canonical.values())
     if any_non_terminal:
         return RunStatusComputation(
             status=DataCheckRunStatus.running.value if any_started else DataCheckRunStatus.pending.value,
@@ -104,7 +147,7 @@ def compute_run_status(statuses: dict[DataCheckUnitType, str]) -> RunStatusCompu
     optional_failed = []
     optional_manual = []
 
-    for unit, status in statuses.items():
+    for unit, status in canonical.items():
         policy = UNIT_POLICIES[unit]
         if policy.required and status == DataCheckUnitStatus.failed.value:
             required_failed.append(unit.value)

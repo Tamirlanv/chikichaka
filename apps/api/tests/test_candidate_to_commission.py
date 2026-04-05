@@ -63,23 +63,6 @@ def _seed_supporting_document(db: Session, app_id):
     return doc
 
 
-def _seed_internal_test(db: Session, app_id):
-    """Seed internal test questions and finalized answers so internal_test passes completion."""
-    from invision_api.repositories import internal_test_repository
-    total = internal_test_repository.count_active_questions(db)
-    if total == 0:
-        return
-    from invision_api.models.application import ApplicationSectionState
-    from datetime import UTC, datetime
-    row = db.query(ApplicationSectionState).filter(
-        ApplicationSectionState.application_id == app_id,
-        ApplicationSectionState.section_key == SectionKey.internal_test.value,
-    ).first()
-    if row:
-        row.is_complete = True
-        row.last_saved_at = datetime.now(tz=UTC)
-
-
 def test_full_candidate_to_commission_pipeline(db: Session, factory, monkeypatch):
     """
     End-to-end pipeline:
@@ -181,8 +164,10 @@ def test_full_candidate_to_commission_pipeline(db: Session, factory, monkeypatch
 
     save_section(db, user, SectionKey.internal_test, {
         "acknowledged_instructions": True,
+        "consent_privacy": True,
+        "consent_parent": True,
     })
-    _seed_internal_test(db, app.id)
+    factory.seed_internal_test_completion(db, app)
 
     db.refresh(app)
     pct, missing = completion_percentage(db, app)

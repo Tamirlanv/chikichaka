@@ -95,9 +95,14 @@ export default function RegisterAccountPage() {
     }
     setApiErr(null);
     try {
+      const flow = readRegisterFlow();
       const auth = await apiFetch<TokenResponse>("/auth/register/complete", {
         method: "POST",
-        json: { email: pendingEmail, code: data.code },
+        json: {
+          email: pendingEmail,
+          code: data.code,
+          ...(flow?.program ? { education_program: flow.program } : {}),
+        },
       });
       storeAuthTokens("candidate", { accessToken: auth.access_token, refreshToken: auth.refresh_token });
       clearRegisterFlow();

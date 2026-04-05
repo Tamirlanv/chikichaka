@@ -174,6 +174,66 @@ def test_evaluate_drive_folder_rejected() -> None:
     assert r.isProcessableVideo is False
 
 
+def test_evaluate_dropbox_public_video_by_extension() -> None:
+    cfg = LinkValidationConfig()
+    url = "https://www.dropbox.com/scl/fi/abc123/presentation.mp4?rlkey=xyz&dl=0"
+    probe = HttpProbeResult(
+        final_url=url,
+        status_code=200,
+        content_type="text/html",
+        content_length=None,
+        redirected=False,
+        redirect_count=0,
+        response_time_ms=14,
+        body_snippet="<html>Dropbox</html>",
+    )
+    cl = classify_url(url, probe.content_type, cfg)
+    r = evaluate_presentation_video(
+        original_url=url,
+        normalized_url=url,
+        probe=probe,
+        classification=cl,
+        is_reachable=True,
+        availability_errors=[],
+        config=cfg,
+        probe_client=None,
+    )
+    assert r.provider == "dropbox"
+    assert r.resourceType == "video"
+    assert r.isProcessableVideo is True
+    assert r.isValid is True
+
+
+def test_evaluate_dropbox_folder_rejected() -> None:
+    cfg = LinkValidationConfig()
+    url = "https://www.dropbox.com/sh/abc123/shared-folder?dl=0"
+    probe = HttpProbeResult(
+        final_url=url,
+        status_code=200,
+        content_type="text/html",
+        content_length=None,
+        redirected=False,
+        redirect_count=0,
+        response_time_ms=10,
+        body_snippet="<html>Dropbox folder</html>",
+    )
+    cl = classify_url(url, probe.content_type, cfg)
+    r = evaluate_presentation_video(
+        original_url=url,
+        normalized_url=url,
+        probe=probe,
+        classification=cl,
+        is_reachable=True,
+        availability_errors=[],
+        config=cfg,
+        probe_client=None,
+    )
+    assert r.provider == "dropbox"
+    assert r.resourceType == "folder"
+    assert r.isProcessableVideo is False
+    assert r.isValid is False
+
+
 def test_evaluate_google_docs_rejected() -> None:
     cfg = LinkValidationConfig()
     url = "https://docs.google.com/document/d/abc123/edit"

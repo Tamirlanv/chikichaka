@@ -41,11 +41,30 @@ export async function postCandidateAiInterviewAnswers(
   });
 }
 
+export type PreferenceWindowPayload = {
+  openedAt: string | null;
+  expiresAt: string | null;
+  status: string | null;
+  remainingSeconds: number | null;
+};
+
+export type ScheduledInterviewPayload = {
+  sessionId: string;
+  scheduledAt: string | null;
+  interviewMode: string | null;
+  locationOrLink: string | null;
+  scheduledByUserId: string | null;
+  reminderRequestedAt: string | null;
+  reminderSentAt: string | null;
+};
+
 export type CandidateAiInterviewStatus = {
   aiInterviewCompleted: boolean;
   preferencesSubmitted: boolean;
   approvedQuestionCount: number;
   answeredQuestionCount: number;
+  preferenceWindow: PreferenceWindowPayload;
+  scheduledInterview: ScheduledInterviewPayload | null;
 };
 
 export async function getCandidateAiInterviewStatus(): Promise<CandidateAiInterviewStatus> {
@@ -82,5 +101,17 @@ export async function postInterviewPreferencesSubmit(slots: Array<{ date: string
   return await apiFetch("/candidates/me/application/interview-preferences/submit", {
     method: "POST",
     json: { slots },
+  });
+}
+
+export async function postCommissionInterviewReminder(): Promise<{
+  ok: boolean;
+  alreadySent?: boolean;
+  alreadyRequested?: boolean;
+  reminderSent?: boolean;
+}> {
+  return await apiFetch("/candidates/me/application/commission-interview/reminder", {
+    method: "POST",
+    json: {},
   });
 }

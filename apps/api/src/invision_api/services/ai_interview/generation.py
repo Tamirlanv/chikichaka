@@ -7,11 +7,34 @@ import logging
 import time
 import uuid
 from typing import Any
+from uuid import UUID
 
 from invision_api.core.config import get_settings
 from invision_api.services.ai_provider import OpenAIProvider
 
 logger = logging.getLogger(__name__)
+
+
+def build_ai_interview_questions_openai_messages(
+    *, context: dict[str, Any], target_count: int
+) -> tuple[str, str]:
+    """Exact (system, user) strings passed to committee_structured_summary for question generation."""
+    system = (
+        "You generate clarification interview questions for university admissions (Russian). "
+        "Questions must be tied to THIS applicant's materials only. "
+        "Each question MUST reference at least one section key from context.section_keys or context.sections_compact "
+        "in the sourceSections array (use exact keys as listed). "
+        "Tone: neutral, respectful, not accusatory. Never say 'explain the contradiction'. "
+        "Ask for concrete examples, role, decisions, consistency. "
+        "Do not include internal pipeline field names, JSON keys, or debugging labels in questionText. "
+        f"Return exactly {target_count} questions as JSON object with key 'questions' — array of objects: "
+        "questionText (ru), reasonType (one of: contradiction, low_concreteness, authenticity_check, "
+        "missing_context, strong_signal_clarification), reasonDescription (ru, short), "
+        "sourceSections (array of section keys from context), severity (low|medium|high)."
+    )
+    user = json.dumps({"targetCount": target_count, "context": context}, ensure_ascii=False)[:80000]
+    return system, user
+
 
 REASON_TYPES = (
     "contradiction",
@@ -98,7 +121,7 @@ def _ensure_source_sections_linked(context: dict[str, Any], questions: list[dict
 
 
 def generate_questions_llm(
-    *, context: dict[str, Any], target_count: int
+    *, context: dict[str, Any], target_count: int, application_id: UUID | str | None = None
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Returns (questions, meta) where meta includes path and degraded flag."""
     meta: dict[str, Any] = {"path": "llm", "degraded": False}
@@ -119,20 +142,7 @@ def generate_questions_llm(
         _ensure_source_sections_linked(context, qs)
         return qs, meta
 
-    system = (
-        "You generate clarification interview questions for university admissions (Russian). "
-        "Questions must be tied to THIS applicant's materials only. "
-        "Each question MUST reference at least one section key from context.section_keys or context.sections_compact "
-        "in the sourceSections array (use exact keys as listed). "
-        "Tone: neutral, respectful, not accusatory. Never say 'explain the contradiction'. "
-        "Ask for concrete examples, role, decisions, consistency. "
-        "Do not include internal pipeline field names, JSON keys, or debugging labels in questionText. "
-        f"Return exactly {target_count} questions as JSON object with key 'questions' — array of objects: "
-        "questionText (ru), reasonType (one of: contradiction, low_concreteness, authenticity_check, "
-        "missing_context, strong_signal_clarification), reasonDescription (ru, short), "
-        "sourceSections (array of section keys from context), severity (low|medium|high)."
-    )
-    user = json.dumps({"targetCount": target_count, "context": context}, ensure_ascii=False)[:80000]
+    system, user = build_ai_interview_questions_openai_messages(context=context, target_count=target_count)
     t0 = time.perf_counter()
     try:
         out = provider.committee_structured_summary(
@@ -140,6 +150,8 @@ def generate_questions_llm(
             compact_payload={},
             system_prompt=system,
             user_message=user,
+            snapshot_flow="ai_interview_question_generation",
+            snapshot_application_id=str(application_id) if application_id is not None else "",
         )
     except Exception as e:
         logger.warning("ai_interview: LLM call failed, using fallback: %s", e)

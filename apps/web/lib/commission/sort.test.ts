@@ -21,6 +21,11 @@ function card(overrides: Partial<CommissionBoardApplicationCard>): CommissionBoa
     aiRecommendation: null,
     aiConfidence: null,
     visualState: "neutral",
+    aiInterviewCompletedAtIso: null,
+    rubricThreeSectionsComplete: false,
+    stageOneDataReady: false,
+    dataCheckRunStatus: null,
+    interviewScheduledAtIso: null,
     ...overrides,
   };
 }

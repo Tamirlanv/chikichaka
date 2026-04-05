@@ -36,6 +36,47 @@ describe("mapDeclarationToDocumentType", () => {
       })
     ).toBe("nis_12");
   });
+
+  it("maps additional attachment from a single declared proof kind", () => {
+    expect(
+      mapDeclarationToDocumentType({
+        englishProofKind: "ielts_6",
+        certificateProofKind: null,
+        documentRole: "additional"
+      })
+    ).toBe("ielts");
+    expect(
+      mapDeclarationToDocumentType({
+        englishProofKind: "toefl_60_78",
+        certificateProofKind: null,
+        documentRole: "additional"
+      })
+    ).toBe("toefl");
+    expect(
+      mapDeclarationToDocumentType({
+        englishProofKind: null,
+        certificateProofKind: "ent",
+        documentRole: "additional"
+      })
+    ).toBe("ent");
+    expect(
+      mapDeclarationToDocumentType({
+        englishProofKind: null,
+        certificateProofKind: "nis_12",
+        documentRole: "additional"
+      })
+    ).toBe("nis_12");
+  });
+
+  it("returns null for additional when both proof families are declared", () => {
+    expect(
+      mapDeclarationToDocumentType({
+        englishProofKind: "ielts_6",
+        certificateProofKind: "ent",
+        documentRole: "additional"
+      })
+    ).toBeNull();
+  });
 });
 
 describe("mergeDocumentType", () => {

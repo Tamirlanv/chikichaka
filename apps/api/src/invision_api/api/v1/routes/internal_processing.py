@@ -11,7 +11,12 @@ from invision_api.api.deps import require_roles
 from invision_api.db.session import get_db
 from invision_api.models.enums import RoleName
 from invision_api.models.user import User
-from invision_api.services.data_check.external_ingestion_service import ingest_external_unit_result
+from invision_api.services.data_check.external_ingestion_service import (
+    ExternalIngestionConflictError,
+    ExternalIngestionNotFoundError,
+    ExternalIngestionValidationError,
+    ingest_external_unit_result,
+)
 
 router = APIRouter()
 VALIDATION_WEBHOOK_SECRET = os.getenv("VALIDATION_ORCHESTRATOR_SHARED_SECRET")
@@ -38,16 +43,23 @@ def ingest_validation_result(
     _ = user
     if VALIDATION_WEBHOOK_SECRET and x_validation_secret != VALIDATION_WEBHOOK_SECRET:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid validation webhook secret")
-    ingest_external_unit_result(
-        db,
-        application_id=body.application_id,
-        run_id=body.run_id,
-        check_type=body.check_type,
-        status=body.status,
-        result_payload=body.result_payload,
-        warnings=body.warnings,
-        errors=body.errors,
-        explainability=body.explainability,
-    )
+    try:
+        ingest_external_unit_result(
+            db,
+            application_id=body.application_id,
+            run_id=body.run_id,
+            check_type=body.check_type,
+            status=body.status,
+            result_payload=body.result_payload,
+            warnings=body.warnings,
+            errors=body.errors,
+            explainability=body.explainability,
+        )
+    except ExternalIngestionValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ExternalIngestionNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ExternalIngestionConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     db.commit()
     return {"status": "ok"}

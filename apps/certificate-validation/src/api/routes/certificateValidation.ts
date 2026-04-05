@@ -17,7 +17,8 @@ const BodySchema = z
     englishProofKind: z.string().optional().nullable(),
     certificateProofKind: z.string().optional().nullable(),
     documentRole: z.enum(["english", "certificate", "additional"]).optional(),
-    skipPersistence: z.boolean().optional()
+    skipPersistence: z.boolean().optional(),
+    ocrLang: z.string().min(1).optional()
   })
   .refine(
     (b) =>
@@ -28,6 +29,8 @@ const BodySchema = z
   );
 
 export async function registerCertificateValidationRoutes(app: FastifyInstance): Promise<void> {
+  app.get("/health", async (_request, reply) => reply.send({ status: "ok", service: "certificate-validation" }));
+
   app.post("/certificate-validation/validate", async (request, reply) => {
     const body = BodySchema.parse(request.body);
     const result = await validateCertificateImage({
@@ -41,7 +44,8 @@ export async function registerCertificateValidationRoutes(app: FastifyInstance):
       englishProofKind: body.englishProofKind,
       certificateProofKind: body.certificateProofKind,
       documentRole: body.documentRole,
-      skipPersistence: body.skipPersistence
+      skipPersistence: body.skipPersistence,
+      ocrLang: body.ocrLang ?? null
     });
     return reply.send(result);
   });

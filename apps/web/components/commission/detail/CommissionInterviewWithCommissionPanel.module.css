@@ -1,0 +1,91 @@
+/* Font weights: regular 350, medium 450, semibold 550, bold 600 */
+
+.section {
+  display: grid;
+  gap: 12px;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: -0.6px;
+  color: #262626;
+}
+
+.lead {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 350;
+  line-height: 1.45;
+  letter-spacing: -0.42px;
+  color: #626262;
+}
+
+.wait {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 350;
+  line-height: 1.45;
+  letter-spacing: -0.42px;
+  color: #626262;
+}
+
+.variants {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 0;
+}
+
+.variantRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 14px;
+  font-weight: 350;
+  line-height: 1.45;
+  letter-spacing: -0.42px;
+  color: #262626;
+}
+
+.variantLabel {
+  flex-shrink: 0;
+  font-weight: 450;
+  color: #626262;
+}
+
+.variantValue {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: 350;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.variantValue:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.variantValue:disabled,
+.variantValueMuted {
+  cursor: default;
+  font-weight: 350;
+  color: #626262;
+}
+
+.meta {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 350;
+  color: #626262;
+}

@@ -10,8 +10,17 @@ export function buildDataVerificationCopy(status: CandidateApplicationStatus | n
   centerBody: string;
   queueWarning: string | null;
 } {
-  const stageHint = status?.stage_descriptions?.initial_screening?.trim() || FALLBACK_STAGE_HINT;
-  const centerBody = getLatestCandidateVisibleNote(status) || FALLBACK_CENTER_BODY;
+  const pipe = status?.initial_screening_pipeline;
+  const stageHint =
+    status?.current_stage === "initial_screening" && pipe?.message?.trim()
+      ? pipe.message.trim()
+      : status?.stage_descriptions?.initial_screening?.trim() || FALLBACK_STAGE_HINT;
+
+  let centerBody = getLatestCandidateVisibleNote(status) || FALLBACK_CENTER_BODY;
+  if (status?.current_stage === "initial_screening" && pipe?.message?.trim()) {
+    centerBody = pipe.message.trim();
+  }
+
   const queueWarning =
     status?.submission_state.queue_status === "degraded"
       ? (status.submission_state.queue_message ?? "Часть фоновой обработки ожидает восстановления сервиса.")

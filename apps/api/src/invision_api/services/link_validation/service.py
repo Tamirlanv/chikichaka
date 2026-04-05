@@ -124,6 +124,7 @@ def run_candidate_link_pipeline(
         config=cfg,
         probe_client=client,
     )
+    vr.normalizedUrl = parsed.normalized_url
     return lr, vr
 
 

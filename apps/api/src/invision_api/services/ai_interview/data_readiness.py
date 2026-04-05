@@ -13,10 +13,9 @@ from invision_api.services.data_check.status_service import compute_run_status
 
 def get_data_check_overall_status(db: Session, application_id: UUID) -> str | None:
     """Returns aggregate data-check status string, or None if no run/checks."""
-    runs = data_check_repository.list_runs_for_application(db, application_id)
-    if not runs:
+    run = data_check_repository.resolve_preferred_run_for_application(db, application_id)
+    if not run:
         return None
-    run = runs[0]
     checks = data_check_repository.list_checks_for_run(db, run.id)
     if not checks:
         return None

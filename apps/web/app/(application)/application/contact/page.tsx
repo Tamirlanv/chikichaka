@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,6 +13,12 @@ import { SelectField } from "@/components/application/SelectField";
 import { Divider } from "@/components/application/Divider";
 import { ConsentCheckbox } from "@/components/application/ConsentCheckbox";
 import { saveDraft as saveDraftLocal, loadDraft, clearDraft } from "@/lib/draft-storage";
+import {
+  getCitiesForCountryAndRegion,
+  getRegionsForCountry,
+  mergeSavedCityOptions,
+  mergeSavedOption,
+} from "@/lib/contact-address-data";
 import formStyles from "@/components/application/form-ui.module.css";
 import { z } from "zod";
 
@@ -45,6 +51,7 @@ export default function ContactPage() {
     control,
     getValues,
     watch,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<Form>({
     resolver: zodResolver(contactSchema),
@@ -99,6 +106,44 @@ export default function ContactPage() {
     });
     return () => sub.unsubscribe();
   }, [watch, getValues]);
+
+  const country = watch("country");
+  const region = watch("region");
+  const city = watch("city");
+
+  const regionOptions = useMemo(
+    () => mergeSavedOption(getRegionsForCountry(country), region),
+    [country, region],
+  );
+  const cityOptions = useMemo(
+    () => mergeSavedCityOptions(getCitiesForCountryAndRegion(country, region), city),
+    [country, region, city],
+  );
+
+  const countryPrev = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (countryPrev.current === undefined) {
+      countryPrev.current = country;
+      return;
+    }
+    if (countryPrev.current !== country) {
+      countryPrev.current = country;
+      setValue("region", "");
+      setValue("city", "");
+    }
+  }, [country, setValue]);
+
+  const regionPrev = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (regionPrev.current === undefined) {
+      regionPrev.current = region;
+      return;
+    }
+    if (regionPrev.current !== region) {
+      regionPrev.current = region;
+      setValue("city", "");
+    }
+  }, [region, setValue]);
 
   function buildPayload(data: Form) {
     const address_line1 = buildAddressLine1(data.street, data.house, data.apartment);
@@ -170,8 +215,8 @@ export default function ContactPage() {
               { value: "RU", label: "Россия" },
             ]}
           />
-          <FormField label="Регион" placeholder="Введите регион" {...register("region")} />
-          <FormField label="Город" placeholder="Введите город" {...register("city")} />
+          <SelectField label="Регион" {...register("region")} options={regionOptions} />
+          <SelectField label="Город" {...register("city")} options={cityOptions} />
         </div>
 
         <div className={formStyles.row3}>

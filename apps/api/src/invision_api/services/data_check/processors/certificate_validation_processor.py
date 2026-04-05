@@ -66,11 +66,14 @@ def _build_validation_payload(
     return payload
 
 
-def _row_from_response(application_id: UUID, doc_id: UUID, data: dict) -> CertificateValidationResultRow:
+def _row_from_response(
+    application_id: UUID, doc_id: UUID, data: dict, *, document_role: str | None
+) -> CertificateValidationResultRow:
     extracted = data.get("extractedFields") or {}
     auth = data.get("authenticity") or {}
     exam = {
         "documentId": str(doc_id),
+        "documentRole": document_role,
         "documentType": data.get("documentType"),
         "detectedScore": extracted.get("totalScore"),
         "scoreLabel": data.get("scoreLabel") or extracted.get("scoreLabel"),
@@ -79,6 +82,9 @@ def _row_from_response(application_id: UUID, doc_id: UUID, data: dict) -> Certif
         "ocrDocumentType": extracted.get("ocrDocumentType"),
         "declarationMismatch": extracted.get("declarationMismatch"),
         "extractionMethod": extracted.get("extractionMethod"),
+        "targetFieldFound": extracted.get("targetFieldFound"),
+        "targetFieldType": extracted.get("targetFieldType"),
+        "targetFieldEvidence": extracted.get("targetFieldEvidence"),
         "scorePlausible": extracted.get("scorePlausible"),
         "scoreRejectionReason": extracted.get("scoreRejectionReason"),
     }
@@ -201,7 +207,7 @@ def run_certificate_validation_processing(
                     )
                 else:
                     data = resp.json()
-                    row = _row_from_response(application_id, doc_id, data)
+                    row = _row_from_response(application_id, doc_id, data, document_role=role)
         except httpx.HTTPError as e:
             row = _row_from_error(application_id, doc_id, str(e))
         except Exception as e:  # noqa: BLE001
@@ -212,12 +218,22 @@ def run_certificate_validation_processing(
 
     db.flush()
 
-    manual = any(
-        r.authenticity_status != "likely_authentic"
-        or r.processing_status in ("ocr_failed", "unsupported", "processing_failed")
-        or r.errors
-        for r in rows
-    )
+    manual = False
+    for r in rows:
+        exam_doc = ((r.extracted_fields or {}).get("examDocument") or {}) if isinstance(r.extracted_fields, dict) else {}
+        role = exam_doc.get("documentRole")
+        score_expected = role in ("english", "certificate")
+        score_missing = exam_doc.get("detectedScore") is None if score_expected else False
+        target_missing = exam_doc.get("targetFieldFound") is False if score_expected else False
+        if (
+            r.authenticity_status != "likely_authentic"
+            or r.processing_status in ("ocr_failed", "unsupported", "processing_failed")
+            or r.errors
+            or score_missing
+            or target_missing
+        ):
+            manual = True
+            break
 
     explainability.append(f"Обработано документов: {len(rows)}.")
 

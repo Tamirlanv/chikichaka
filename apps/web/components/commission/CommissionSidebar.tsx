@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -22,12 +21,13 @@ type NavItem = {
 
 const PROGRAM_ITEMS: NavItem[] = [
   { key: "main", label: "Главная", icon: "/assets/icons/fluent_home-48-filled.svg", href: "/commission" },
-  { key: "docs", label: "Документы", icon: "/assets/icons/material-symbols_folder.svg", href: "/commission" },
+  { key: "docs", label: "Документы", icon: "/assets/icons/material-symbols_folder.svg", href: "/commission/documents" },
   { key: "history", label: "История", icon: "/assets/icons/mingcute_time-fill.svg", href: "/commission/history" },
 ];
 
 const COMMON_ITEMS: NavItem[] = [
   { key: "interview", label: "Собеседование", icon: "/assets/icons/mdi_user.svg", href: "/commission/interview" },
+  { key: "engagement", label: "Вовлеченность", icon: "/assets/icons/fluent_eye-12-filled.svg", href: "/commission/engagement" },
   { key: "analytics", label: "Аналитика и выгрузка", icon: "/assets/icons/ic_round-bar-chart.svg", href: "/commission" },
 ];
 
@@ -36,6 +36,19 @@ function buildHrefWithProgram(base: string, programParam: string | null): string
   const q = new URLSearchParams();
   q.set("program", programParam);
   return `${base}?${q.toString()}`;
+}
+
+function NavItemIcon({ src }: { src: string }) {
+  return (
+    <span
+      className={styles.itemIcon}
+      style={{
+        WebkitMaskImage: `url(${src})`,
+        maskImage: `url(${src})`,
+      }}
+      aria-hidden
+    />
+  );
 }
 
 export function CommissionSidebar({ isOpen, program, onProgramChange }: Props) {
@@ -105,14 +118,15 @@ export function CommissionSidebar({ isOpen, program, onProgramChange }: Props) {
           {PROGRAM_ITEMS.map((item) => {
             const active =
               (item.key === "main" && pathname === "/commission") ||
+              (item.key === "docs" && pathname.startsWith("/commission/documents")) ||
               (item.key === "history" && pathname.startsWith("/commission/history"));
             const href =
-              item.key === "history"
+              item.key === "history" || item.key === "docs"
                 ? buildHrefWithProgram(item.href, program ?? programFromUrl)
                 : item.href;
             return (
               <Link key={item.key} href={href} className={`${styles.item}${active ? ` ${styles.active}` : ""}`}>
-                <Image src={item.icon} alt="" width={20} height={20} />
+                <NavItemIcon src={item.icon} />
                 <span className={styles.itemLabel}>{item.label}</span>
               </Link>
             );
@@ -122,14 +136,16 @@ export function CommissionSidebar({ isOpen, program, onProgramChange }: Props) {
         <div className={styles.section}>
           <p className={styles.sectionTitle}>Общие</p>
           {COMMON_ITEMS.map((item) => {
-            const active = item.key === "interview" && pathname.startsWith("/commission/interview");
+            const active =
+              (item.key === "interview" && pathname.startsWith("/commission/interview")) ||
+              (item.key === "engagement" && pathname.startsWith("/commission/engagement"));
             const href =
-              item.key === "interview"
+              item.key === "interview" || item.key === "engagement"
                 ? buildHrefWithProgram(item.href, program ?? programFromUrl)
                 : item.href;
             return (
               <Link key={item.key} href={href} className={`${styles.item}${active ? ` ${styles.active}` : ""}`}>
-                <Image src={item.icon} alt="" width={20} height={20} />
+                <NavItemIcon src={item.icon} />
                 <span className={styles.itemLabel}>{item.label}</span>
               </Link>
             );
@@ -157,4 +173,3 @@ export function CommissionSidebar({ isOpen, program, onProgramChange }: Props) {
     </aside>
   );
 }
-

@@ -191,7 +191,7 @@ make dev            # tmux: backend + worker + frontend (if tmux installed)
 
 ### Docker full stack
 
-Starts **postgres**, **redis**, **api** (migrations + internal-test seed on boot), **worker** (Redis job queue + submit heartbeat), and **web**.
+Starts **postgres**, **redis**, **certificate-validation** (OCR microservice on port 4400), **api** (migrations + internal-test seed on boot), **worker** (Redis job queue + submit heartbeat), and **web**. Compose sets **`CERTIFICATE_VALIDATION_URL`** for the API and worker to the internal service URL.
 
 ```bash
 docker compose build
@@ -219,6 +219,7 @@ API `http://localhost:8000`, web `http://localhost:3000`, uploads in `upload_dat
 | **Frontend** | **Vercel** — set project **Root Directory** to `apps/web`; build/install commands are in [`apps/web/vercel.json`](apps/web/vercel.json) (monorepo `pnpm` + Turbo). |
 | **Backend** | **Railway** (or any container host) — build from `infra/docker/Dockerfile.api`; entrypoint runs migrations, `seed_internal_test_questions.py`, then uvicorn. Set **`COMMISSION_ADMIN_EMAIL`** and **`COMMISSION_ADMIN_PASSWORD`** (or equivalent `COMMISSION_SEED_*` vars) with **`ENVIRONMENT=production`** so the commission user is created on first API startup. |
 | **Worker** | Separate **Railway** service: build with **[`infra/docker/Dockerfile.worker`](infra/docker/Dockerfile.worker)** (Python image). Do **not** use Railpack/Node auto-build for the worker — there is no `python3` there. Same `DATABASE_URL` + `REDIS_URL` as API. |
+| **Certificate validation** | Separate **Railway** (or similar) **Docker** service: build from **[`infra/docker/Dockerfile.certificate-validation`](infra/docker/Dockerfile.certificate-validation)** (repo root, context `.`). Image includes **Tesseract** (eng/rus/kaz), **ffmpeg**, and **Node** runtime for **sharp**. The API and worker must set **`CERTIFICATE_VALIDATION_URL`** to the internal URL of this service (e.g. `https://<cert-service>/certificate-validation/validate`). Optional: **`CERTIFICATE_VALIDATION_HEALTH_URL`** (defaults to same origin as `/health` derived from `CERTIFICATE_VALIDATION_URL`). Same **`DATABASE_URL`** as the API if the service persists results. |
 | **Database / Redis** | Managed Postgres + Redis with URLs wired into API and worker. |
 | **LLM** | Same **self-hosted** service on **hoster.kz** (endpoint + secrets in API env, including `INTERNAL_LLM_*` for summarizer). |
 

@@ -17,8 +17,15 @@ from invision_api.models.application import TextAnalysisRun
 from invision_api.models.commission import SectionReviewScore
 from invision_api.models.data_check_unit_result import DataCheckUnitResult
 from invision_api.models.enums import DataCheckUnitType
+from invision_api.commission.application import audit as commission_audit
 from invision_api.repositories import data_check_repository
 from invision_api.services.data_check.status_service import TERMINAL_UNIT_STATUSES
+
+from invision_api.services.motivation_heuristics import (
+    compute_motivation_signals,
+    motivation_subscores_from_signals,
+)
+from invision_api.commission.application.section_score_explanation import build_reviewer_facing_explanation
 
 
 _ScoreConfig = list[dict[str, str]]
@@ -56,18 +63,27 @@ def _clamp(val: float, lo: int = 1, hi: int = 5) -> int:
     return max(lo, min(hi, round(val)))
 
 
-def _scale_01_to_15(val: float | None) -> int:
-    if val is None:
-        return 3
-    return _clamp(val * 5)
-
-
 def _get_analysis_run(db: Session, application_id: UUID, block_key: str) -> TextAnalysisRun | None:
     return db.scalars(
         select(TextAnalysisRun)
         .where(TextAnalysisRun.application_id == application_id, TextAnalysisRun.block_key == block_key)
         .order_by(TextAnalysisRun.created_at.desc())
     ).first()
+
+
+def _get_preferred_analysis_run(db: Session, application_id: UUID, block_key: str) -> TextAnalysisRun | None:
+    """Prefer post-submit analysis for reviewer scoring (fallback to latest)."""
+    runs = list(
+        db.scalars(
+            select(TextAnalysisRun)
+            .where(TextAnalysisRun.application_id == application_id, TextAnalysisRun.block_key == block_key)
+            .order_by(TextAnalysisRun.created_at.desc())
+        ).all()
+    )
+    for run in runs:
+        if str(run.source_kind or "").lower() == "post_submit":
+            return run
+    return runs[0] if runs else None
 
 
 def _compute_personal_scores(db: Session, application_id: UUID) -> dict[str, int]:
@@ -155,64 +171,207 @@ def _compute_test_scores(db: Session, application_id: UUID) -> dict[str, int]:
     return scores
 
 
+def _path_section_signal(section_signals: dict[str, Any], primary: str, *fallbacks: str) -> float | None:
+    for key in (primary,) + fallbacks:
+        v = section_signals.get(key)
+        if v is not None:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _path_score_from_signal(signal: float | None) -> int:
+    if signal is None:
+        return 3
+    if signal >= 0.75:
+        return 5
+    if signal >= 0.55:
+        return 4
+    if signal >= 0.35:
+        return 3
+    if signal >= 0.20:
+        return 2
+    return 1
+
+
+def _path_quality_metrics(run: TextAnalysisRun | None) -> tuple[float, float, bool]:
+    """Returns non_spam_ratio, evidence_ratio, strong_negative."""
+    if not run:
+        return 0.0, 0.0, False
+    exp = run.explanations if isinstance(run.explanations, dict) else {}
+    per_question = (exp or {}).get("per_question") or {}
+    if isinstance(per_question, dict):
+        items = [v for v in per_question.values() if isinstance(v, dict)]
+    elif isinstance(per_question, list):
+        items = [v for v in per_question if isinstance(v, dict)]
+    else:
+        items = []
+
+    total = len(items)
+    if total == 0:
+        return 0.0, 0.0, False
+
+    non_spam = 0
+    evidence_hits = 0
+    spam_count = 0
+    for item in items:
+        spam_ok = (item.get("spam_check") or {}).get("ok")
+        if spam_ok is False:
+            spam_count += 1
+        else:
+            non_spam += 1
+
+        heur = item.get("heuristics") if isinstance(item.get("heuristics"), dict) else {}
+        action = float(heur.get("action_score") or 0.0)
+        reflection = float(heur.get("reflection_score") or 0.0)
+        concrete = float(heur.get("concrete_score") or 0.0)
+        key_sentences = item.get("key_sentences")
+        has_key_sentence = isinstance(key_sentences, list) and any(str(s).strip() for s in key_sentences)
+        if (action + reflection + concrete) >= 0.55 or has_key_sentence:
+            evidence_hits += 1
+
+    non_spam_ratio = non_spam / total
+    evidence_ratio = evidence_hits / total
+    manual_flag = bool((run.flags or {}).get("manual_review_required"))
+    strong_negative = spam_count >= 2 or (manual_flag and spam_count >= 1 and total >= 2)
+    return non_spam_ratio, evidence_ratio, strong_negative
+
+
+_PATH_EVIDENCE_MARKERS: dict[str, tuple[str, ...]] = {
+    "initiative": (
+        "инициатив",
+        "самостоятель",
+        "организ",
+        "созд",
+        "запуст",
+        "проект",
+    ),
+    "resilience": (
+        "труд",
+        "слож",
+        "преодол",
+        "барьер",
+        "ошиб",
+        "неувер",
+    ),
+    "reflection_growth": (
+        "понял",
+        "осоз",
+        "вывод",
+        "рост",
+        "измен",
+        "подход",
+        "науч",
+    ),
+}
+
+
+def _path_evidence_hits(
+    run: TextAnalysisRun | None,
+    validated_section: Any | None,
+) -> dict[str, int]:
+    hits = {"initiative": 0, "resilience": 0, "reflection_growth": 0}
+    seen: dict[str, set[str]] = {k: set() for k in hits}
+
+    def _register(text: str) -> None:
+        t = str(text or "").strip()
+        if not t:
+            return
+        low = t.lower()
+        norm = " ".join(low.split())
+        for key, markers in _PATH_EVIDENCE_MARKERS.items():
+            if any(marker in low for marker in markers) and norm not in seen[key]:
+                seen[key].add(norm)
+                hits[key] += 1
+
+    if validated_section and hasattr(validated_section, "answers"):
+        answers = getattr(validated_section, "answers", {}) or {}
+        if isinstance(answers, dict):
+            for answer in answers.values():
+                _register(getattr(answer, "text", None) or "")
+
+    exp = run.explanations if isinstance(getattr(run, "explanations", None), dict) else {}
+    per_question = (exp or {}).get("per_question") or {}
+    if isinstance(per_question, dict):
+        pq_items = [v for v in per_question.values() if isinstance(v, dict)]
+    elif isinstance(per_question, list):
+        pq_items = [v for v in per_question if isinstance(v, dict)]
+    else:
+        pq_items = []
+
+    for item in pq_items:
+        for sentence in (item.get("key_sentences") or []):
+            _register(sentence)
+
+    return hits
+
+
 def _compute_motivation_scores(db: Session, application_id: UUID) -> dict[str, int]:
-    scores: dict[str, int] = {}
+    from invision_api.models.enums import SectionKey
+    from invision_api.services.data_check.utils import get_validated_section
+
+    validated = get_validated_section(db, application_id=application_id, section_key=SectionKey.motivation_goals)
+    narrative = (getattr(validated, "narrative", None) or "").strip() if validated else ""
+    if narrative:
+        signals = compute_motivation_signals(narrative)
+        return motivation_subscores_from_signals(signals)
+
     run = _get_analysis_run(db, application_id, "motivation_goals")
-    signals = ((run.explanations or {}).get("signals", {})) if run else {}
+    stored = ((run.explanations or {}).get("signals", {})) if run else {}
+    if stored:
+        excerpt = ((run.explanations or {}).get("summary") or "") if run else ""
+        base = compute_motivation_signals(excerpt) if excerpt.strip() else compute_motivation_signals("")
+        merged = {**base, **stored}
+        return motivation_subscores_from_signals(merged)
 
-    mot_density = signals.get("motivation_density")
-    if mot_density is not None:
-        if mot_density > 0.2:
-            scores["motivation_level"] = 5
-        elif mot_density > 0.15:
-            scores["motivation_level"] = 4
-        elif mot_density > 0.08:
-            scores["motivation_level"] = 3
-        elif mot_density > 0.03:
-            scores["motivation_level"] = 2
-        else:
-            scores["motivation_level"] = 1
-    else:
-        scores["motivation_level"] = 3
-
-    word_count = signals.get("word_count", 0)
-    if word_count >= 200:
-        scores["choice_awareness"] = 5
-    elif word_count >= 120:
-        scores["choice_awareness"] = 4
-    elif word_count >= 70:
-        scores["choice_awareness"] = 3
-    elif word_count >= 30:
-        scores["choice_awareness"] = 2
-    else:
-        scores["choice_awareness"] = 1
-
-    evidence = signals.get("evidence_density")
-    if evidence is not None:
-        if evidence > 0.15:
-            scores["specificity"] = 5
-        elif evidence > 0.10:
-            scores["specificity"] = 4
-        elif evidence > 0.05:
-            scores["specificity"] = 3
-        elif evidence > 0.02:
-            scores["specificity"] = 2
-        else:
-            scores["specificity"] = 1
-    else:
-        scores["specificity"] = 3
-
-    return scores
+    return {"motivation_level": 3, "choice_awareness": 3, "specificity": 3}
 
 
 def _compute_path_scores(db: Session, application_id: UUID) -> dict[str, int]:
-    scores: dict[str, int] = {}
-    run = _get_analysis_run(db, application_id, "growth_journey")
-    section_signals = ((run.explanations or {}).get("section_signals", {})) if run else {}
+    from invision_api.models.enums import SectionKey
+    from invision_api.services.data_check.utils import get_validated_section
 
-    scores["initiative"] = _scale_01_to_15(section_signals.get("initiative_score"))
-    scores["resilience"] = _scale_01_to_15(section_signals.get("resilience_score"))
-    scores["reflection_growth"] = _scale_01_to_15(section_signals.get("growth_score"))
+    scores: dict[str, int] = {}
+    run = _get_preferred_analysis_run(db, application_id, "growth_journey")
+    exp = run.explanations if run else None
+    section_signals: dict[str, Any] = (exp or {}).get("section_signals") or {}
+    if not section_signals and run and getattr(run, "dimensions", None):
+        section_signals = (run.dimensions or {}).get("section_signals") or {}
+
+    scores["initiative"] = _path_score_from_signal(
+        _path_section_signal(section_signals, "initiative", "initiative_score")
+    )
+    scores["resilience"] = _path_score_from_signal(
+        _path_section_signal(section_signals, "resilience", "resilience_score")
+    )
+    scores["reflection_growth"] = _path_score_from_signal(
+        _path_section_signal(section_signals, "growth", "growth_score", "reflection_growth")
+    )
+
+    non_spam_ratio, evidence_ratio, strong_negative = _path_quality_metrics(run)
+    validated_path = None
+    if db is not None:
+        try:
+            validated_path = get_validated_section(
+                db,
+                application_id=application_id,
+                section_key=SectionKey.growth_journey,
+            )
+        except Exception:
+            validated_path = None
+    evidence_hits = _path_evidence_hits(run, validated_path)
+
+    if not strong_negative:
+        for key in ("initiative", "resilience", "reflection_growth"):
+            scores[key] = max(scores[key], 2)
+            if evidence_hits.get(key, 0) >= 2 and scores[key] < 4:
+                scores[key] += 1
+
+    if non_spam_ratio >= 0.8 and evidence_ratio >= 0.6:
+        for key in ("initiative", "resilience", "reflection_growth"):
+            scores[key] = max(scores[key], 3)
 
     return scores
 
@@ -297,7 +456,14 @@ def get_section_scores(
 ) -> dict[str, Any]:
     config = SECTION_SCORE_CONFIGS.get(section)
     if not config:
-        return {"section": section, "items": [], "totalScore": 0, "maxTotalScore": 0}
+        return {
+            "section": section,
+            "items": [],
+            "totalScore": 0,
+            "maxTotalScore": 0,
+            "aggregateRecommendedScore": 3,
+            "aggregateRecommendationExplanation": "",
+        }
 
     recommended = compute_recommended_scores(db, application_id, section)
 
@@ -312,9 +478,11 @@ def get_section_scores(
 
     items: list[dict[str, Any]] = []
     total = 0
+    rec_values: list[int] = []
     for cfg in config:
         key = cfg["key"]
         rec = recommended.get(key, 3)
+        rec_values.append(rec)
         saved = saved_map.get(key)
         manual = saved.manual_score if saved else None
         effective = manual if manual is not None else rec
@@ -327,11 +495,23 @@ def get_section_scores(
         })
         total += effective
 
+    aggregate_recommended = max(1, min(5, round(sum(rec_values) / len(rec_values)))) if rec_values else 3
+    if section == "path":
+        run = _get_preferred_analysis_run(db, application_id, "growth_journey")
+        non_spam_ratio, evidence_ratio, strong_negative = _path_quality_metrics(run)
+        if not strong_negative and non_spam_ratio >= 0.8 and evidence_ratio >= 0.6:
+            aggregate_recommended = max(3, aggregate_recommended)
+    explanation = build_reviewer_facing_explanation(
+        db, application_id, section, items, aggregate_recommended
+    )
+
     return {
         "section": section,
         "items": items,
         "totalScore": total,
         "maxTotalScore": len(config) * 5,
+        "aggregateRecommendedScore": aggregate_recommended,
+        "aggregateRecommendationExplanation": explanation,
     }
 
 
@@ -350,6 +530,7 @@ def save_section_scores(
     valid_keys = {c["key"] for c in config}
     recommended = compute_recommended_scores(db, application_id, section)
 
+    applied_scores: dict[str, int] = {}
     for item in scores:
         key = item.get("key", "")
         score_val = item.get("score")
@@ -379,8 +560,21 @@ def save_section_scores(
                 manual_score=score_val,
             )
             db.add(row)
+        applied_scores[key] = score_val
 
     db.flush()
+    if applied_scores:
+        commission_audit.write_event(
+            db,
+            event_type="section_scores_updated",
+            entity_type="application",
+            entity_id=application_id,
+            actor_user_id=reviewer_user_id,
+            after={
+                "section": section,
+                "scores": applied_scores,
+            },
+        )
     return get_section_scores(
         db,
         application_id=application_id,

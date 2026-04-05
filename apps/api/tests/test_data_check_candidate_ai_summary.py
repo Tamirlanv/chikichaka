@@ -72,3 +72,43 @@ def test_data_check_candidate_ai_summary_uses_llm_when_available(
     ai_rows = list(db.query(AIReviewMetadata).filter(AIReviewMetadata.application_id == app.id).all())
     assert len(ai_rows) == 1
     assert ai_rows[0].summary_text == "LLM summary text"
+
+
+def test_data_check_candidate_ai_summary_degraded_fallback_without_aggregate(
+    db: Session, factory
+) -> None:
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile, state="under_screening")
+    run = data_check_repository.create_run(
+        db,
+        candidate_id=profile.id,
+        application_id=app.id,
+        status="running",
+    )
+    data_check_repository.upsert_unit_result(
+        db,
+        run_id=run.id,
+        application_id=app.id,
+        unit_type="test_profile_processing",
+        status="completed",
+        result_payload={"profile": {"dominantTrait": "INI"}},
+        warnings=[],
+        errors=[],
+        explainability=[],
+        manual_review_required=False,
+        attempts=1,
+        started_at=None,
+        finished_at=None,
+    )
+
+    out = run_candidate_ai_summary_processing(db, application_id=app.id, run_id=run.id)
+    db.flush()
+
+    assert out.status == "manual_review_required"
+    assert out.payload is not None
+    assert "деградирован" in out.payload["summary"].lower()
+
+    ai_rows = list(db.query(AIReviewMetadata).filter(AIReviewMetadata.application_id == app.id).all())
+    assert len(ai_rows) == 1
+    assert ai_rows[0].prompt_version == "data_check_v1_degraded"

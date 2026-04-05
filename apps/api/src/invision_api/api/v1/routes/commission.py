@@ -7,11 +7,12 @@ from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from invision_api.api.deps import require_commission_role
 from invision_api.commission.application import service as commission_service
+from invision_api.commission.application import history_service as commission_history_service
 from invision_api.commission.application import personal_info_service as commission_personal_info_service
 from invision_api.commission.domain.types import (
     CommissionRole,
@@ -25,7 +26,7 @@ from invision_api.db.session import get_db
 from invision_api.models.user import User
 from invision_api.models.application import Document
 from invision_api.repositories import admissions_repository, document_repository
-from invision_api.services import candidate_stage_email_service
+from invision_api.services import candidate_stage_email_service, engagement_scoring_service
 from invision_api.services.storage import get_storage
 
 router = APIRouter()
@@ -39,7 +40,11 @@ def commission_me(
     from invision_api.models.commission import CommissionUser
 
     row = db.get(CommissionUser, user.id)
-    return {"userId": str(user.id), "role": row.role if row else None}
+    return {
+        "userId": str(user.id),
+        "email": user.email,
+        "role": row.role if row else None,
+    }
 
 
 @router.get("/applications")
@@ -51,7 +56,7 @@ def list_applications(
     search: str | None = None,
     scope: str | None = None,
     interviewKanbanOnly: bool = False,
-    limit: int = 50,
+    limit: int = 200,
     offset: int = 0,
     user: User = Depends(require_commission_role(CommissionRole.viewer)),
     db: Session = Depends(get_db),
@@ -80,7 +85,7 @@ def list_applications(
 def list_archived_applications(
     program: str | None = None,
     search: str | None = None,
-    limit: int = 50,
+    limit: int = 200,
     offset: int = 0,
     _: User = Depends(require_commission_role(CommissionRole.viewer)),
     db: Session = Depends(get_db),
@@ -95,6 +100,31 @@ def list_archived_applications(
     return [r.__dict__ for r in rows]
 
 
+@router.get("/history/events")
+def list_history_events(
+    search: str | None = None,
+    program: str | None = None,
+    eventType: str = "all",
+    sort: str = "newest",
+    limit: int = 200,
+    offset: int = 0,
+    _: User = Depends(require_commission_role(CommissionRole.viewer)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        return commission_history_service.list_commission_history_events(
+            db,
+            search=search,
+            program=program,
+            event_type=eventType,
+            sort=sort,
+            limit=min(max(limit, 1), 500),
+            offset=max(offset, 0),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/metrics")
 def board_metrics(
     range: str = "week",
@@ -104,6 +134,28 @@ def board_metrics(
     db: Session = Depends(get_db),
 ) -> dict[str, int]:
     return commission_service.board_metrics(db, range_value=range, search=search, program=program)
+
+
+@router.get("/engagement")
+def engagement_board(
+    search: str | None = None,
+    program: str | None = None,
+    sort: str = "risk",
+    limit: int = 200,
+    offset: int = 0,
+    _: User = Depends(require_commission_role(CommissionRole.viewer)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    if sort not in {"risk", "freshness", "engagement"}:
+        raise HTTPException(status_code=422, detail="Некорректный sort")
+    return engagement_scoring_service.list_commission_engagement(
+        db,
+        search=search,
+        program=program,
+        sort=sort,
+        limit=min(max(limit, 1), 200),
+        offset=max(offset, 0),
+    )
 
 
 @router.get("/applications/{application_id}")
@@ -247,6 +299,23 @@ def stage_advance(
             application_id, prev_stage, app_after.current_stage
         )
     return out
+
+
+@router.get("/applications/{application_id}/stage-advance-preview")
+def get_stage_advance_preview(
+    application_id: UUID,
+    _: User = Depends(require_commission_role(CommissionRole.reviewer)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from invision_api.commission.application.personal_info_validators import load_submitted_application_or_404
+    from invision_api.commission.application.stage_transition_guard import (
+        resolution_to_preview_dict,
+        resolve_kanban_advance,
+    )
+
+    load_submitted_application_or_404(db, application_id)
+    r = resolve_kanban_advance(db, application_id)
+    return resolution_to_preview_dict(r)
 
 
 class StageStatusBody(BaseModel):
@@ -431,6 +500,29 @@ def list_audit(
     return commission_service.list_audit(db, application_id=application_id)
 
 
+@router.get("/applications/{application_id}/history-events")
+def list_application_history_events(
+    application_id: UUID,
+    eventType: str = "all",
+    sort: str = "newest",
+    limit: int = 200,
+    offset: int = 0,
+    _: User = Depends(require_commission_role(CommissionRole.viewer)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        return commission_history_service.list_application_history_events(
+            db,
+            application_id=application_id,
+            event_type=eventType,
+            sort=sort,
+            limit=min(max(limit, 1), 500),
+            offset=max(offset, 0),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/ai-summary/{application_id}")
 def get_ai_summary(
     application_id: UUID,
@@ -555,6 +647,61 @@ def get_ai_interview_candidate_session(
     return ai_interview_service.build_commission_ai_interview_session_view(db, application_id)
 
 
+class CommissionInterviewScheduleBody(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    scheduled_at: str = Field(..., alias="scheduledAt", description="ISO 8601 datetime")
+    interview_mode: str | None = Field(default=None, alias="interviewMode")
+    location_or_link: str | None = Field(default=None, alias="locationOrLink")
+
+
+@router.post("/applications/{application_id}/commission-interview/schedule")
+def post_commission_interview_schedule(
+    application_id: UUID,
+    body: CommissionInterviewScheduleBody,
+    user: User = Depends(require_commission_role(CommissionRole.reviewer)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from datetime import datetime
+
+    from invision_api.services.commission_interview_scheduling.service import (
+        interview_session_to_api_dict,
+        upsert_commission_interview_schedule,
+    )
+
+    try:
+        scheduled_at = datetime.fromisoformat(body.scheduled_at.replace("Z", "+00:00"))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail="Некорректная дата/время (scheduledAt).") from e
+
+    sess = upsert_commission_interview_schedule(
+        db,
+        application_id,
+        scheduled_at=scheduled_at,
+        interview_mode=body.interview_mode,
+        location_or_link=body.location_or_link,
+        scheduled_by_user_id=user.id,
+    )
+    db.commit()
+    return {"ok": True, "scheduledInterview": interview_session_to_api_dict(sess)}
+
+
+@router.post("/applications/{application_id}/commission-interview/outcome")
+def post_commission_interview_outcome(
+    application_id: UUID,
+    user: User = Depends(require_commission_role(CommissionRole.reviewer)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from invision_api.services.commission_interview_scheduling.service import (
+        interview_session_to_api_dict,
+        record_commission_interview_outcome,
+    )
+
+    sess = record_commission_interview_outcome(db, application_id, actor_user_id=user.id)
+    db.commit()
+    return {"ok": True, "scheduledInterview": interview_session_to_api_dict(sess)}
+
+
 class ArchiveApplicationBody(BaseModel):
     reason: str | None = Field(default=None, max_length=2000)
 
@@ -630,4 +777,3 @@ def get_export_result(
         "resultStorageKey": job.result_storage_key,
         "completedAt": job.completed_at.isoformat() if job.completed_at else None,
     }
-

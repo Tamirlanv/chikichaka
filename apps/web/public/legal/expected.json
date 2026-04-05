@@ -1,0 +1,24 @@
+{
+  "fixtures": [
+    {
+      "id": "ent",
+      "file": "ент.pdf",
+      "documentRole": "certificate",
+      "certificateProofKind": "ent",
+      "englishProofKind": null,
+      "expectedDocumentType": "ent",
+      "expectedScore": 100,
+      "ocrLang": "rus+kaz+eng"
+    },
+    {
+      "id": "ielts",
+      "file": "ielts.jpeg",
+      "documentRole": "english",
+      "certificateProofKind": null,
+      "englishProofKind": "ielts_6",
+      "expectedDocumentType": "ielts",
+      "expectedScore": 6.0,
+      "ocrLang": "eng"
+    }
+  ]
+}

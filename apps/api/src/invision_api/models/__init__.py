@@ -50,4 +50,5 @@ from invision_api.models.candidate_signals_aggregate import CandidateSignalsAggr
 from invision_api.models.data_check_unit_result import DataCheckUnitResult  # noqa: F401
 from invision_api.models.ai_interview import AIInterviewAnswer, AIInterviewQuestionSet  # noqa: F401
 from invision_api.models.video_validation import VideoValidationResultRow  # noqa: F401
+from invision_api.models.candidate_activity_event import CandidateActivityEvent  # noqa: F401
 from invision_api.models.user import Role, User, UserRole  # noqa: F401

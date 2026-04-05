@@ -1,0 +1,22 @@
+/* Horizontal board: hide scrollbar but keep wheel / touch / drag scroll */
+.boardScrollStrip {
+  display: flex;
+  gap: 20px;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  align-items: flex-start;
+  /* blur 24px + offset 4px — room so column/card shadows are not clipped */
+  padding-bottom: 36px;
+  padding-left: 24px;
+  padding-right: 24px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.boardScrollStrip::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}

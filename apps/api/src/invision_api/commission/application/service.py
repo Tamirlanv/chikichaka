@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import csv
 import io
+import logging
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -12,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from invision_api.commission.application import audit as commission_audit
+from invision_api.commission.application import kanban_border_hints
 from invision_api.commission.application.ai_pipeline_service import CommissionAIPipelineResult, run_commission_ai_pipeline
 from invision_api.commission.domain.mapping import (
     application_to_commission_column,
@@ -32,8 +35,15 @@ from invision_api.models.commission import ApplicationComment, ApplicationCommis
 from invision_api.models.enums import ApplicationStage
 from invision_api.repositories import admissions_repository, commission_repository
 from invision_api.repositories.application_repository import create_initial_application
+from invision_api.commission.application.stage_transition_guard import (
+    http_detail_from_resolution,
+    resolve_kanban_advance,
+)
 from invision_api.services.stage_transition_policy import TransitionContext, TransitionName, apply_transition
 from invision_api.services.stages import decision_service
+from invision_api.services.stages.application_review_service import transition_to_interview
+
+logger = logging.getLogger(__name__)
 
 
 def _load_application(db: Session, application_id: UUID) -> Application:
@@ -62,6 +72,42 @@ def _education_track_from_app(app: Application) -> str | None:
                 if isinstance(fos, str) and fos.strip():
                     return fos.strip()
     return None
+
+
+def _enrich_kanban_border_hints(db: Session, cards: list[KanbanCard]) -> list[KanbanCard]:
+    """Fill interview schedule + rubric/stage-one hints for main board cards."""
+    if not cards:
+        return cards
+    app_ids = [c.application_id for c in cards]
+    rows = db.scalars(select(InterviewSession).where(InterviewSession.application_id.in_(app_ids))).all()
+    by_app: dict[UUID, list[InterviewSession]] = {}
+    for r in rows:
+        by_app.setdefault(r.application_id, []).append(r)
+
+    out: list[KanbanCard] = []
+    for c in cards:
+        sess_list = by_app.get(c.application_id, [])
+        pick = _pick_display_interview_session(sess_list)
+        sched_iso = pick.scheduled_at.isoformat() if pick and pick.scheduled_at else None
+        review_total = kanban_border_hints.application_review_total_score(db, c.application_id)
+        rubric_ok = review_total is not None
+        stage_one = kanban_border_hints.stage_one_data_ready(db, c.application_id, has_ai_summary=c.has_ai_summary)
+        dc_status = (
+            kanban_border_hints.latest_data_check_run_status(db, c.application_id)
+            if c.stage_column == "data_check"
+            else c.data_check_run_status
+        )
+        out.append(
+            replace(
+                c,
+                interview_scheduled_at_iso=sched_iso or c.interview_scheduled_at_iso,
+                rubric_three_sections_complete=rubric_ok,
+                application_review_total_score=review_total,
+                stage_one_data_ready=stage_one,
+                data_check_run_status=dc_status,
+            )
+        )
+    return out
 
 
 def _enrich_interview_kanban_cards(db: Session, cards: list[KanbanCard]) -> list[KanbanCard]:
@@ -108,6 +154,11 @@ def _enrich_interview_kanban_cards(db: Session, cards: list[KanbanCard]) -> list
                 interview_scheduled_at_iso=sched_iso,
                 interview_scheduled_by_user_id=sched_by,
                 education_track=track,
+                ai_interview_completed_at_iso=c.ai_interview_completed_at_iso,
+                rubric_three_sections_complete=c.rubric_three_sections_complete,
+                application_review_total_score=c.application_review_total_score,
+                stage_one_data_ready=c.stage_one_data_ready,
+                data_check_run_status=c.data_check_run_status,
             )
         )
     return out
@@ -188,8 +239,12 @@ def list_applications(
                 ai_recommendation=AIRecommendation(r.ai_recommendation)
                 if r.ai_recommendation in {x.value for x in AIRecommendation}
                 else None,
+                ai_interview_completed_at_iso=r.ai_interview_completed_at.isoformat()
+                if r.ai_interview_completed_at
+                else None,
             )
         )
+    out = _enrich_kanban_border_hints(db, out)
     if stage == ApplicationStage.interview.value:
         out = _enrich_interview_kanban_cards(db, out)
         if scope == "mine" and current_user_id is not None:
@@ -239,9 +294,12 @@ def list_archived_applications(
                 ai_recommendation=AIRecommendation(r.ai_recommendation)
                 if r.ai_recommendation in {x.value for x in AIRecommendation}
                 else None,
+                ai_interview_completed_at_iso=r.ai_interview_completed_at.isoformat()
+                if r.ai_interview_completed_at
+                else None,
             )
         )
-    return out
+    return _enrich_kanban_border_hints(db, out)
 
 
 def archive_application_by_commission(
@@ -431,32 +489,31 @@ def get_application_details(db: Session, application_id: UUID) -> dict:
 
 def advance_stage(db: Session, application_id: UUID, actor_user_id: UUID | None, reason_comment: str | None) -> dict:
     app = _load_application(db, application_id)
-    if app.current_stage == "application_review":
-        raise HTTPException(
-            status_code=409,
-            detail="Переход с этапа оценки заявки на собеседование выполняется только через одобрение AI-собеседования.",
+    resolution = resolve_kanban_advance(db, application_id)
+    if not resolution.allowed or resolution.transition is None:
+        code = resolution.block_code.value if resolution.block_code else "UNKNOWN"
+        logger.info(
+            "commission_stage_advance_blocked application_id=%s code=%s",
+            application_id,
+            code,
         )
+        raise HTTPException(status_code=409, detail=http_detail_from_resolution(resolution))
     before = {"current_stage": app.current_stage, "state": app.state}
-    transition: TransitionName | None = None
-    if app.current_stage == "initial_screening":
-        transition = TransitionName.screening_passed
-    elif app.current_stage == "interview":
-        transition = TransitionName.interview_complete
-    elif app.current_stage == "committee_review":
-        transition = TransitionName.human_advances_to_decision
-    if transition is None:
-        raise HTTPException(status_code=409, detail="Нет допустимого следующего этапа")
-    apply_transition(
-        db,
-        app,
-        TransitionContext(
-            application_id=app.id,
-            transition=transition,
-            actor_user_id=actor_user_id,
-            actor_type="committee",
-            internal_note=reason_comment,
-        ),
-    )
+    transition = resolution.transition
+    if transition == TransitionName.review_complete:
+        transition_to_interview(db, app, actor_user_id=actor_user_id)
+    else:
+        apply_transition(
+            db,
+            app,
+            TransitionContext(
+                application_id=app.id,
+                transition=transition,
+                actor_user_id=actor_user_id,
+                actor_type="committee",
+                internal_note=reason_comment,
+            ),
+        )
     rebuild_projection(db, app.id)
     commission_audit.write_event(
         db,
@@ -727,6 +784,16 @@ def board_metrics(
         limit=10000,
         offset=0,
     )
+    rows_all_programs = commission_repository.list_projections(
+        db,
+        stage=None,
+        stage_status=None,
+        attention_only=False,
+        program=None,
+        search=search,
+        limit=10000,
+        offset=0,
+    )
     now = datetime.now(tz=UTC)
     if range_value == "day":
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -741,15 +808,14 @@ def board_metrics(
     total = len([r for r in rows if (r.submitted_at and r.submitted_at >= start)])
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today = len([r for r in rows if (r.submitted_at and r.submitted_at >= today_start)])
-    needs_attention = len(
-        [r for r in rows if r.current_stage_status == "needs_attention" or bool(r.attention_flag_manual)]
-    )
-    ai_recommended = len([r for r in rows if r.has_ai_summary and r.ai_recommendation == "recommend"])
+    in_range_by_program = [r for r in rows_all_programs if (r.submitted_at and r.submitted_at >= start)]
+    foundation = len([r for r in in_range_by_program if (r.program or "").strip() == "Foundation"])
+    bachelor = len([r for r in in_range_by_program if (r.program or "").strip() == "Бакалавриат"])
     return {
         "totalApplications": total,
         "todayApplications": today,
-        "needsAttention": needs_attention,
-        "aiRecommended": ai_recommended,
+        "foundationApplications": foundation,
+        "bachelorApplications": bachelor,
     }
 
 
@@ -890,4 +956,3 @@ def create_export_csv_job(
         after={"format": "csv", "status": "completed"},
     )
     return job
-

@@ -1,0 +1,29 @@
+# Build from repository root:
+#   docker build -f apps/certificate-validation/Dockerfile.legal -t cert-legal .
+# Run:
+#   docker run --rm cert-legal
+
+FROM node:22-bookworm-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-rus \
+    tesseract-ocr-kaz \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /repo/apps/certificate-validation
+
+# package-lock.json in this app is pnpm-style; use fresh npm resolve inside the image.
+COPY apps/certificate-validation/package.json ./
+RUN npm install
+
+COPY apps/certificate-validation/ ./
+COPY apps/web/public/legal /repo/apps/web/public/legal
+
+ENV LEGAL_FIXTURES_DIR=/repo/apps/web/public/legal
+# Single-column layout often matches IELTS TRF scans better than default PSM 3.
+ENV OCR_PSM=4
+
+CMD ["npm", "run", "test:legal"]

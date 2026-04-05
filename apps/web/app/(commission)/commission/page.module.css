@@ -18,6 +18,19 @@
   margin-left: 84px;
 }
 
+/*
+ * Kanban: cancel main horizontal padding (32px) so the board scrollport runs
+ * from the sidebar edge to the viewport right edge — shadows/scroll clip there,
+ * not at the padded content box.
+ */
+.boardStripBleed {
+  margin-left: -32px;
+  margin-right: -32px;
+  width: calc(100% + 64px);
+  box-sizing: border-box;
+  min-width: 0;
+}
+
 .sidebarToggle {
   position: fixed;
   top: 12px;

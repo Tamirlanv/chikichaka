@@ -9,7 +9,7 @@ from invision_api.models.application import InternalTestAnswer, InternalTestQues
 from invision_api.models.enums import ApplicationState, SectionKey
 from invision_api.models.user import User
 from invision_api.repositories import internal_test_repository
-from invision_api.services import application_service
+from invision_api.services import application_service, candidate_activity_service
 from invision_api.services.section_payloads import InternalTestSectionPayload
 
 
@@ -85,6 +85,14 @@ def save_draft_answers(
     application_service.upsert_section_state(db, app, SectionKey.internal_test, payload, is_complete)
     if app.state == ApplicationState.draft.value:
         app.state = ApplicationState.in_progress.value
+    candidate_activity_service.record_candidate_activity_event(
+        db,
+        application_id=app.id,
+        candidate_user_id=user.id,
+        event_type="internal_test_saved",
+        stage=app.current_stage,
+        metadata={"answersSaved": len(out)},
+    )
 
     db.commit()
     for r in out:
@@ -149,4 +157,11 @@ def submit_internal_test(db: Session, user: User) -> None:
     payload = validated.model_dump()
     is_complete = application_service.compute_section_complete(db, app, SectionKey.internal_test, validated)
     application_service.upsert_section_state(db, app, SectionKey.internal_test, payload, is_complete)
+    candidate_activity_service.record_candidate_activity_event(
+        db,
+        application_id=app.id,
+        candidate_user_id=user.id,
+        event_type="internal_test_submitted",
+        stage=app.current_stage,
+    )
     db.commit()

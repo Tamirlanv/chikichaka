@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -14,12 +14,29 @@ from invision_api.repositories.application_repository import get_application_for
 from invision_api.repositories import document_repository
 from invision_api.services import application_service, dashboard_service
 from invision_api.services.application_service import REQUIRED_SECTIONS
+from invision_api.services import candidate_activity_service
 
 router = APIRouter()
 
 
 class SectionPatchBody(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
+
+
+def _to_json_safe(value: Any) -> Any:
+    if isinstance(value, BaseException):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _to_json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_to_json_safe(v) for v in value]
+    if isinstance(value, tuple):
+        return [_to_json_safe(v) for v in value]
+    return value
+
+
+def _safe_validation_errors(exc: ValidationError) -> list[dict[str, Any]]:
+    return [_to_json_safe(err) for err in exc.errors()]
 
 
 @router.get("/me/dashboard-summary")
@@ -157,7 +174,7 @@ def patch_section(
     try:
         row = application_service.save_section(db, user, key, body.payload)
     except ValidationError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=_safe_validation_errors(exc)) from exc
     return {
         "section_key": row.section_key,
         "is_complete": row.is_complete,
@@ -292,6 +309,22 @@ def get_ai_interview_status(
     return ai_interview_service.get_candidate_ai_interview_status(db, app.id)
 
 
+@router.post("/me/application/commission-interview/reminder")
+def post_commission_interview_reminder(
+    user: User = Depends(require_roles(RoleName.candidate)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from invision_api.services import commission_interview_reminder_service
+
+    profile = get_candidate_profile_by_user(db, user.id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    app = get_application_for_candidate(db, profile.id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Заявление не найдено")
+    return commission_interview_reminder_service.request_commission_interview_reminder(db, app.id)
+
+
 @router.get("/me/application/interview-preferences/available-days")
 def get_interview_preference_available_days(
     user: User = Depends(require_roles(RoleName.candidate)),
@@ -327,6 +360,47 @@ def get_interview_preference_available_slots(
 
 class InterviewPreferencesSubmitBody(BaseModel):
     slots: list[dict[str, Any]]
+
+
+class CandidateActivityEventBody(BaseModel):
+    eventType: str = Field(min_length=1, max_length=64)
+    occurredAt: datetime | None = None
+    stage: str | None = Field(default=None, max_length=64)
+    metadata: dict[str, Any] | None = None
+
+
+@router.post("/me/application/activity-events")
+def post_candidate_activity_event(
+    body: CandidateActivityEventBody,
+    user: User = Depends(require_roles(RoleName.candidate)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    profile = get_candidate_profile_by_user(db, user.id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    app = get_application_for_candidate(db, profile.id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Заявление не найдено")
+
+    event_type = body.eventType.strip()
+    if not candidate_activity_service.is_supported_event_type(event_type):
+        raise HTTPException(status_code=422, detail="Неизвестный тип события активности")
+
+    occurred_at = body.occurredAt
+    if occurred_at is not None and occurred_at.tzinfo is None:
+        occurred_at = occurred_at.replace(tzinfo=UTC)
+
+    candidate_activity_service.record_candidate_activity_event(
+        db,
+        application_id=app.id,
+        candidate_user_id=user.id,
+        event_type=event_type,
+        occurred_at=occurred_at,
+        stage=body.stage or app.current_stage,
+        metadata=body.metadata,
+    )
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/me/application/interview-preferences/submit")

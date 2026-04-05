@@ -31,6 +31,9 @@ export function classifyDocumentType(text: string): DocumentType {
   if (/total\s*score/i.test(t)) scores.toefl += 2;
 
   if (/ент\b|единое национальное|national testing|uac|тестирования/i.test(t)) scores.ent += 4;
+  if (/серия\s*st|сертификат\s*[-*]?\s*\d{4,}/i.test(t)) scores.ent += 2;
+  if (/кт\s*[-:]\s*\d{2,3}/i.test(t)) scores.ent += 2;
+  if (/баллов в том числе|жалпы\s*бал/i.test(t)) scores.ent += 1;
   if (t.includes("итоговый балл") || t.includes("қорытынды")) {
     scores.ent += 1;
     scores.nis_12 += 1;

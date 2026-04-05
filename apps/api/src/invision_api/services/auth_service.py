@@ -17,11 +17,16 @@ from invision_api.core.security import (
     verify_password,
 )
 from invision_api.models.application import CandidateProfile
-from invision_api.models.enums import RoleName, VerificationType
+from invision_api.models.enums import RoleName, SectionKey, VerificationType
 from invision_api.models.user import User, UserRole
 from invision_api.models.application import VerificationRecord
 from invision_api.repositories import role_repository, user_repository
-from invision_api.repositories.application_repository import create_initial_application
+from invision_api.repositories.application_repository import (
+    create_initial_application,
+    get_application_for_candidate,
+    get_candidate_profile_by_user,
+)
+from invision_api.services import application_service
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +108,31 @@ def register_candidate(
     db.commit()
     db.refresh(user)
     return user
+
+
+def seed_personal_education_program_from_registration(db: Session, user: User, education_program: str | None) -> None:
+    """Persist program chosen at registration into the personal section (and commission projection via save_section)."""
+    if not education_program:
+        return
+    profile = get_candidate_profile_by_user(db, user.id)
+    if not profile:
+        return
+    app = get_application_for_candidate(db, profile.id)
+    if not app:
+        return
+    existing: dict = {}
+    for ss in app.section_states or []:
+        if ss.section_key == "personal" and isinstance(ss.payload, dict):
+            existing = dict(ss.payload)
+            break
+    if existing.get("education_program"):
+        return
+    first = (str(existing.get("preferred_first_name") or "").strip() or profile.first_name or "").strip()
+    last = (str(existing.get("preferred_last_name") or "").strip() or profile.last_name or "").strip()
+    if not first or not last:
+        return
+    payload = {**existing, "preferred_first_name": first, "preferred_last_name": last, "education_program": education_program}
+    application_service.save_section(db, user, SectionKey.personal, payload)
 
 
 def verify_email_by_email(db: Session, email: str, code: str) -> User:

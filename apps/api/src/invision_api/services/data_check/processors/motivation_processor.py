@@ -9,9 +9,7 @@ from invision_api.models.enums import AnalysisRunStatus, SectionKey
 from invision_api.repositories import admissions_repository
 from invision_api.services.data_check.contracts import UnitExecutionResult
 from invision_api.services.data_check.utils import get_validated_section
-
-_MOTIVATION_TERMS = ("цель", "мисси", "вклад", "помочь", "разв", "обществ")
-_EVIDENCE_TERMS = ("пример", "проект", "инициатив", "достиг", "результат")
+from invision_api.services.motivation_heuristics import compute_motivation_signals
 
 
 def _sentences(text: str) -> list[str]:
@@ -33,25 +31,14 @@ def run_motivation_processing(db: Session, *, application_id: UUID) -> UnitExecu
         )
 
     text = validated.narrative.strip()
-    words = [w for w in re.split(r"\s+", text) if w]
     sentences = _sentences(text)
-    lower = text.lower()
-    motivation_hits = sum(1 for term in _MOTIVATION_TERMS if term in lower)
-    evidence_hits = sum(1 for term in _EVIDENCE_TERMS if term in lower)
-    avg_sentence_len = (len(words) / len(sentences)) if sentences else 0.0
-
     summary = " ".join(sentences[:3])[:700]
-    signals = {
-        "motivation_density": round(min(1.0, motivation_hits / 4), 3),
-        "evidence_density": round(min(1.0, evidence_hits / 4), 3),
-        "avg_sentence_len": round(avg_sentence_len, 2),
-        "word_count": len(words),
-        "char_count": len(text),
-    }
-    manual = len(words) < 70
+    signals = compute_motivation_signals(text)
+    words_count = int(signals.get("word_count") or 0)
+    manual = words_count < 70
     explainability = [
-        "Сигналы построены алгоритмически по плотности мотивационных/доказательных маркеров.",
-        f"Текст содержит {len(words)} слов и {len(sentences)} предложений.",
+        "Сигналы построены алгоритмически по плотности мотивационных/доказательных маркеров и осознанности выбора.",
+        f"Текст содержит {words_count} слов и {len(sentences)} предложений.",
     ]
     if manual:
         explainability.append("Короткий текст мотивации — нужен ручной просмотр комиссией.")

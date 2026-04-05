@@ -149,6 +149,7 @@ def enqueue_run_block_analysis(
     source_document_id: UUID | None = None,
     strict: bool = False,
 ) -> None:
+    """Queue block-level analysis (reserved). Worker marks the analysis job completed (no LLM step yet)."""
     payload: dict[str, Any] = {"block_key": block_key}
     if source_document_id:
         payload["source_document_id"] = str(source_document_id)

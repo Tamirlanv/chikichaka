@@ -1,6 +1,13 @@
+export type InitialScreeningPipeline = {
+  run_status: string | null;
+  processing_state: "processing" | "success" | "problem";
+  message: string;
+};
+
 export type CandidateApplicationStatus = {
   application_id?: string;
   current_stage: string;
+  initial_screening_pipeline?: InitialScreeningPipeline | null;
   submission_state: {
     state: string;
     submitted_at: string | null;
@@ -40,4 +47,14 @@ export function getLatestCandidateVisibleNote(status: CandidateApplicationStatus
     if (note) return note;
   }
   return null;
+}
+
+/** User is on /application/interview but active application is not in interview stage (e.g. new draft after commission archive). */
+export function requiresRedirectFromInterviewRoute(
+  pathname: string | null | undefined,
+  status: CandidateApplicationStatus | null,
+): boolean {
+  if (!pathname?.startsWith("/application/interview")) return false;
+  if (!status) return false;
+  return !isInterviewStage(status);
 }

@@ -8,7 +8,7 @@ from uuid import UUID
 
 from invision_api.core.redis_client import get_redis_client
 from invision_api.db.session import SessionLocal
-from invision_api.models.enums import DataCheckUnitType, JobType
+from invision_api.models.enums import DataCheckUnitType, JobStatus, JobType
 from invision_api.repositories import admissions_repository
 from invision_api.services import candidate_stage_email_service
 from invision_api.services.data_check import job_runner_service
@@ -33,7 +33,16 @@ def process_payload(payload: dict[str, Any]) -> None:
                 initial_screening_service.run_screening_checks_and_record(db, app, actor_user_id=None)
                 db.commit()
         elif job_type == JobType.run_block_analysis.value:
-            # Analysis jobs are processed by a dedicated handler or deferred.
+            # No block-level LLM pipeline yet; mark job completed so queues do not stall.
+            if analysis_job_id:
+                job_row = admissions_repository.get_analysis_job(db, analysis_job_id)
+                if job_row:
+                    admissions_repository.update_analysis_job(
+                        db,
+                        job_row,
+                        status=JobStatus.completed.value,
+                        last_error=None,
+                    )
             db.commit()
         elif job_type == JobType.data_check_unit.value:
             run_id = UUID(payload["run_id"])

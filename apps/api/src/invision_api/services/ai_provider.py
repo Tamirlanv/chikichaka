@@ -12,6 +12,7 @@ from typing import Any, Protocol
 from openai import OpenAI
 
 from invision_api.core.config import get_settings
+from invision_api.services.llm_snapshot_export import write_openai_chat_snapshot
 
 
 class AIProvider(Protocol):
@@ -30,6 +31,8 @@ class AIProvider(Protocol):
         compact_payload: dict[str, Any],
         system_prompt: str,
         user_message: str,
+        snapshot_flow: str | None = None,
+        snapshot_application_id: str | None = None,
     ) -> dict[str, Any]: ...
 
 
@@ -109,8 +112,25 @@ class OpenAIProvider:
         compact_payload: dict[str, Any],
         system_prompt: str,
         user_message: str,
+        snapshot_flow: str | None = None,
+        snapshot_application_id: str | None = None,
     ) -> dict[str, Any]:
         _ = (prompt_version, len(compact_payload))
+        req: dict[str, Any] = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+        }
+        if snapshot_flow and snapshot_application_id:
+            write_openai_chat_snapshot(
+                flow=snapshot_flow,
+                application_id=snapshot_application_id,
+                request=req,
+            )
         resp = self._client.chat.completions.create(
             model=self._model,
             response_format={"type": "json_object"},

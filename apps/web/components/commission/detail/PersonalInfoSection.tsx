@@ -7,21 +7,27 @@ import type { CommissionApplicationPersonalInfoView } from "@/lib/commission/typ
 import formUiStyles from "@/components/application/form-ui.module.css";
 import { PillSegmentedControl } from "@/components/application/PillSegmentedControl";
 import { CommissionCandidateAiInterviewPanel } from "@/components/commission/detail/CommissionCandidateAiInterviewPanel";
+import { CommissionInterviewWithCommissionPanel } from "@/components/commission/detail/CommissionInterviewWithCommissionPanel";
 import docCardStyles from "@/components/commission/detail/personal-info-document-card.module.css";
 import tabTransitionStyles from "@/components/commission/detail/commission-tab-transitions.module.css";
 import { openCommissionApplicationDocumentInNewTab } from "@/lib/commission/query";
 
 type Props = {
   data: CommissionApplicationPersonalInfoView;
+  readOnly?: boolean;
   moveButton?: ReactNode;
+  canOpenVideoReview?: boolean;
+  onOpenVideoReview?: () => void;
   activeTab?: string;
   onTabChange?: (tab: string) => void;
-  /** 0 = Оценка заявки, 1 = Собеседование, 2 = Решение комиссии. Только навигация UI, этап кандидата не меняется. */
+  /** 0 = первый столбец воронки (Проверка данных или Оценка заявки), 1 = Собеседование, 2 = Решение комиссии. */
   commissionPillIndex: number;
   onCommissionPillChange: (index: number) => void;
   interviewSubTab: string;
   onInterviewSubTabChange: (tab: string) => void;
   interviewPrepSlot: ReactNode;
+  /** True while кандидат на этапе «Проверка данных» (API: `data_check` или legacy `initial_screening`). */
+  isDataVerificationStage: boolean;
 };
 
 function CommissionDocumentOpenButton({
@@ -97,17 +103,22 @@ const sectionTitle: React.CSSProperties = {
   lineHeight: "20px",
 };
 
-const COMMISSION_STAGE_OPTIONS = [
-  { value: "0", label: "Оценка заявки" },
-  { value: "1", label: "Собеседование" },
-  { value: "2", label: "Решение комиссии" },
-] as const;
+function commissionStageOptions(isDataVerificationStage: boolean) {
+  return [
+    { value: "0", label: isDataVerificationStage ? "Проверка данных" : "Оценка заявки" },
+    { value: "1", label: "Собеседование" },
+    { value: "2", label: "Решение комиссии" },
+  ] as const;
+}
 const TABS = ["Личная информация", "Тест", "Мотивация", "Путь", "Достижения"] as const;
 const INTERVIEW_SUB_TABS = ["Подготовка вопросов", "AI-собеседование", "Собеседование с комиссией"] as const;
 
 export function PersonalInfoSection({
   data,
+  readOnly = false,
   moveButton,
+  canOpenVideoReview = false,
+  onOpenVideoReview,
   activeTab,
   onTabChange,
   commissionPillIndex,
@@ -115,31 +126,34 @@ export function PersonalInfoSection({
   interviewSubTab,
   onInterviewSubTabChange,
   interviewPrepSlot,
+  isDataVerificationStage,
 }: Props) {
   const { personalInfo } = data;
   const currentTab = activeTab ?? TABS[0];
+  const firstColumnTitle = isDataVerificationStage ? "Проверка данных" : "Оценка заявки";
 
   return (
     <div style={{ display: "grid", gap: 24, minWidth: 0 }}>
-      {/* ── Stage nav (только просмотр колонки для комиссии) ── */}
-      <div style={{ display: "grid", gap: 12 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h2 style={sectionTitle}>Этап</h2>
+      {/* ── Stage nav: скрыт на этапе «Проверка данных» (нет переключения колонок доски) ── */}
+      {!isDataVerificationStage ? (
+        <div style={{ display: "grid", gap: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h2 style={sectionTitle}>Этап</h2>
+          </div>
+          <PillSegmentedControl
+            aria-label="Этап"
+            options={[...commissionStageOptions(isDataVerificationStage)]}
+            value={String(commissionPillIndex) as "0" | "1" | "2"}
+            onChange={(v) => onCommissionPillChange(Number(v))}
+          />
         </div>
-        <PillSegmentedControl
-          aria-label="Этап"
-          options={[...COMMISSION_STAGE_OPTIONS]}
-          value={String(commissionPillIndex) as "0" | "1" | "2"}
-          onChange={(v) => onCommissionPillChange(Number(v))}
-        />
-      </div>
+      ) : null}
 
       {commissionPillIndex === 0 ? (
         <>
-          {/* ── "Оценка заявки" title + tab bar ── */}
           <div style={{ display: "grid", gap: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h2 style={sectionTitle}>Оценка заявки</h2>
+              <h2 style={sectionTitle}>{firstColumnTitle}</h2>
             </div>
             <div style={{ display: "flex", gap: 32, alignItems: "center", flexWrap: "wrap" }}>
               {TABS.map((tab) => {
@@ -263,7 +277,7 @@ export function PersonalInfoSection({
                 )}
 
                 {personalInfo.videoPresentation?.url ? (
-                  <div style={{ display: "grid", gap: 4 }}>
+                  <div style={{ display: "grid", gap: 8 }}>
                     <p style={{ margin: 0, fontSize: 14, fontWeight: 350, color: "#626262", letterSpacing: "-0.42px" }}>
                       Видео-презентация
                     </p>
@@ -275,6 +289,16 @@ export function PersonalInfoSection({
                     >
                       {personalInfo.videoPresentation.url}
                     </a>
+                    {canOpenVideoReview ? (
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={onOpenVideoReview}
+                        style={{ width: "100%", boxSizing: "border-box" }}
+                      >
+                        Проверить видео
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -285,7 +309,7 @@ export function PersonalInfoSection({
         </>
       ) : null}
 
-      {commissionPillIndex === 1 ? (
+      {!isDataVerificationStage && commissionPillIndex === 1 ? (
         <>
           {/* Как «Оценка заявки»: отдельный блок заголовка + вкладок (gap 12), контент — сосед снаружи (gap 24 у корня). */}
           <div style={{ display: "grid", gap: 12 }}>
@@ -338,10 +362,11 @@ export function PersonalInfoSection({
               />
             ) : null}
             {interviewSubTab === "Собеседование с комиссией" ? (
-              <p style={{ margin: 0, fontSize: 14, lineHeight: 1.2, color: "#626262" }}>
-                Расписание и назначение времени собеседования с комиссией отображаются на стороне кандидата после выбора
-                слотов. Здесь будут дополнительные материалы, когда появятся в продукте.
-              </p>
+              <CommissionInterviewWithCommissionPanel
+                applicationId={data.applicationId}
+                isActive={commissionPillIndex === 1 && interviewSubTab === "Собеседование с комиссией"}
+                readOnly={readOnly}
+              />
             ) : null}
           </div>
         </>

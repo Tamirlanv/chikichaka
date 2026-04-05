@@ -96,6 +96,8 @@ def screening_transition(
         TransitionName.screening_blocked,
     ):
         raise HTTPException(status_code=400, detail="Недопустимый переход для скрининга")
+    if tn == TransitionName.screening_passed:
+        initial_screening_service.ensure_manual_screening_passed_allowed(db, application_id=application_id, user=user)
     prev_stage = app.current_stage
     initial_screening_service.apply_screening_transition(db, app, transition=tn, actor_user_id=user.id)
     db.commit()

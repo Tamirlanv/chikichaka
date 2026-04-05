@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Select, String, func, or_, select
+from sqlalchemy import Select, String, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from invision_api.models.ai_interview import AIInterviewQuestionSet
@@ -13,6 +14,7 @@ from invision_api.models.application import (
     AdmissionDecision,
     AIReviewMetadata,
     Application,
+    ApplicationSectionState,
 )
 from invision_api.models.commission import (
     ApplicationComment,
@@ -58,14 +60,12 @@ def upsert_projection_for_application(db: Session, app: Application) -> Applicat
 
     contact_payload: dict = {}
     personal_payload: dict = {}
-    education_payload: dict = {}
-    for ss in (app.section_states or []):
+    section_rows = db.scalars(select(ApplicationSectionState).where(ApplicationSectionState.application_id == app.id)).all()
+    for ss in section_rows:
         if ss.section_key == "contact" and isinstance(ss.payload, dict):
             contact_payload = ss.payload
         elif ss.section_key == "personal" and isinstance(ss.payload, dict):
             personal_payload = ss.payload
-        elif ss.section_key == "education" and isinstance(ss.payload, dict):
-            education_payload = ss.payload
 
     row.city = contact_payload.get("city") or personal_payload.get("city") or None
     row.phone = contact_payload.get("phone_e164") or None
@@ -120,7 +120,74 @@ def upsert_projection_for_application(db: Session, app: Application) -> Applicat
     qs = db.scalars(select(AIInterviewQuestionSet).where(AIInterviewQuestionSet.application_id == app.id)).first()
     row.ai_interview_completed_at = qs.candidate_completed_at if qs else None
     row.interview_preferences_submitted_at = app.interview_preferences_submitted_at
+    row.interview_preference_window_opened_at = app.interview_preference_window_opened_at
+    row.interview_preference_window_expires_at = app.interview_preference_window_expires_at
+    row.interview_preference_window_status = app.interview_preference_window_status
     return row
+
+
+def _commission_search_predicate(*, raw_search: str) -> Any | None:
+    """OR conditions: projection fields, contact JSON (telegram/instagram/whatsapp), digit-normalized phones."""
+    raw = raw_search.strip()
+    if not raw:
+        return None
+    q_pat = f"%{raw}%"
+    alt = raw.lstrip("@").strip()
+    q_alt = f"%{alt}%" if alt and alt != raw else None
+
+    proj = ApplicationCommissionProjection
+    pl = ApplicationSectionState.payload
+
+    contact_field_or: list[Any] = [
+        func.coalesce(pl["telegram"].astext, "").ilike(q_pat),
+        func.coalesce(pl["instagram"].astext, "").ilike(q_pat),
+        func.coalesce(pl["whatsapp"].astext, "").ilike(q_pat),
+        func.coalesce(pl["phone_e164"].astext, "").ilike(q_pat),
+    ]
+    if q_alt:
+        contact_field_or.extend(
+            [
+                func.coalesce(pl["telegram"].astext, "").ilike(q_alt),
+                func.coalesce(pl["instagram"].astext, "").ilike(q_alt),
+            ]
+        )
+
+    contact_exists = exists(
+        select(ApplicationSectionState.id).where(
+            ApplicationSectionState.application_id == proj.application_id,
+            ApplicationSectionState.section_key == "contact",
+            or_(*contact_field_or),
+        )
+    )
+
+    parts: list[Any] = [
+        proj.candidate_full_name.ilike(q_pat),
+        proj.city.ilike(q_pat),
+        proj.phone.ilike(q_pat),
+        proj.program.ilike(q_pat),
+        func.cast(proj.application_id, String).ilike(q_pat),
+        contact_exists,
+    ]
+
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) >= 4:
+        rp_phone = func.regexp_replace(func.coalesce(proj.phone, ""), "[^0-9]", "", "g")
+        parts.append(rp_phone.like(f"%{digits}%"))
+
+        contact_digits_or = or_(
+            func.regexp_replace(func.coalesce(pl["phone_e164"].astext, ""), "[^0-9]", "", "g").like(f"%{digits}%"),
+            func.regexp_replace(func.coalesce(pl["whatsapp"].astext, ""), "[^0-9]", "", "g").like(f"%{digits}%"),
+        )
+        contact_digits_exists = exists(
+            select(ApplicationSectionState.id).where(
+                ApplicationSectionState.application_id == proj.application_id,
+                ApplicationSectionState.section_key == "contact",
+                contact_digits_or,
+            )
+        )
+        parts.append(contact_digits_exists)
+
+    return or_(*parts)
 
 
 def list_projections(
@@ -141,7 +208,7 @@ def list_projections(
     if stage:
         stmt = stmt.where(ApplicationCommissionProjection.current_stage == stage)
     if interview_kanban_only:
-        stmt = stmt.where(ApplicationCommissionProjection.interview_preferences_submitted_at.is_not(None))
+        stmt = stmt.where(ApplicationCommissionProjection.ai_interview_completed_at.is_not(None))
     if stage_status:
         stmt = stmt.where(ApplicationCommissionProjection.current_stage_status == stage_status)
     if attention_only:
@@ -154,16 +221,9 @@ def list_projections(
     if program:
         stmt = stmt.where(ApplicationCommissionProjection.program == program)
     if search:
-        q = f"%{search.strip()}%"
-        stmt = stmt.where(
-            or_(
-                ApplicationCommissionProjection.candidate_full_name.ilike(q),
-                ApplicationCommissionProjection.city.ilike(q),
-                ApplicationCommissionProjection.phone.ilike(q),
-                ApplicationCommissionProjection.program.ilike(q),
-                func.cast(ApplicationCommissionProjection.application_id, String).ilike(q),
-            )
-        )
+        pred = _commission_search_predicate(raw_search=search)
+        if pred is not None:
+            stmt = stmt.where(pred)
     stmt = stmt.order_by(ApplicationCommissionProjection.updated_at.desc()).limit(limit).offset(offset)
     return list(db.scalars(stmt).all())
 
@@ -182,16 +242,9 @@ def list_archived_projections(
     if program:
         stmt = stmt.where(ApplicationCommissionProjection.program == program)
     if search:
-        q = f"%{search.strip()}%"
-        stmt = stmt.where(
-            or_(
-                ApplicationCommissionProjection.candidate_full_name.ilike(q),
-                ApplicationCommissionProjection.city.ilike(q),
-                ApplicationCommissionProjection.phone.ilike(q),
-                ApplicationCommissionProjection.program.ilike(q),
-                func.cast(ApplicationCommissionProjection.application_id, String).ilike(q),
-            )
-        )
+        pred = _commission_search_predicate(raw_search=search)
+        if pred is not None:
+            stmt = stmt.where(pred)
     stmt = stmt.order_by(ApplicationCommissionProjection.updated_at.desc()).limit(limit).offset(offset)
     return list(db.scalars(stmt).all())
 

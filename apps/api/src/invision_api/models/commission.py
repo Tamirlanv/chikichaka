@@ -257,15 +257,22 @@ class ApplicationCommissionProjection(Base, TimestampMixin):
     revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     ai_interview_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     interview_preferences_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    interview_preference_window_opened_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    interview_preference_window_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    interview_preference_window_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class InterviewSlotBooking(Base):
-    """Candidate preference for commission interview time; unique (slot_date, time_range_code) globally."""
+    """Candidate preferred slots for commission interview; unique per application (date + time band)."""
 
     __tablename__ = "interview_slot_bookings"
     __table_args__ = (
-        UniqueConstraint("slot_date", "time_range_code", name="uq_interview_slot_slot_time"),
+        UniqueConstraint("application_id", "slot_date", "time_range_code", name="uq_interview_slot_app_date_time"),
         Index("ix_interview_slot_bookings_app", "application_id"),
     )
 

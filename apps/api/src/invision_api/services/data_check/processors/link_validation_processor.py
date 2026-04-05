@@ -58,7 +58,7 @@ def run_link_validation_processing(db: Session, *, application_id: UUID, candida
         if not item.get("isReachable", False):
             bad_links += 1
 
-    manual = bool(orchestrator_warning or bad_links > 0)
+    manual = bad_links > 0
     explainability = [f"Проверено ссылок: {len(results)}; недоступных: {bad_links}."]
     if orchestrator_warning:
         explainability.append("Внешний orchestrator недоступен; использована локальная fallback-проверка.")

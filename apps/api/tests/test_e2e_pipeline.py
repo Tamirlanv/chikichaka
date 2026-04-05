@@ -37,7 +37,7 @@ def api():
 @pytest.fixture(scope="module")
 def candidate_session(api: httpx.Client):
     """Register a candidate, verify email (if needed), and return auth cookies."""
-    email = f"e2e-{uuid4().hex[:8]}@test.local"
+    email = f"e2e-{uuid4().hex[:8]}@example.com"
     password = "TestPassword123!"
 
     resp = api.post("/api/v1/auth/register", json={
@@ -60,7 +60,7 @@ def candidate_session(api: httpx.Client):
 @pytest.fixture(scope="module")
 def committee_session(api: httpx.Client):
     """Login as committee user (expects seeded committee account)."""
-    email = os.getenv("E2E_COMMITTEE_EMAIL", "commission@test.local")
+    email = os.getenv("E2E_COMMITTEE_EMAIL", "commission@example.com")
     password = os.getenv("E2E_COMMITTEE_PASSWORD", "TestPassword123!")
 
     resp = api.post("/api/v1/auth/login", json={

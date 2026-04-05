@@ -1,0 +1,74 @@
+.root {
+  position: relative;
+}
+
+.handleRail {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+  pointer-events: none;
+  transition: width 0.22s ease, min-width 0.22s ease;
+}
+
+.root:hover .handleRail,
+.root:focus-within .handleRail,
+.rootDragging .handleRail {
+  width: 32px;
+  min-width: 32px;
+  pointer-events: auto;
+}
+
+.dragHandleBtn {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 32px;
+  min-width: 32px;
+  padding: 12px 4px 12px 8px;
+  border: none;
+  background: transparent;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #626262;
+}
+
+.dragHandleBtnGrabbing {
+  cursor: grabbing;
+}
+
+.dragHandleBtnGrab {
+  cursor: grab;
+}
+
+/* С ручкой: по умолчанию колонка скрыта — отступ как у карточек без ручки; при hover ручка выезжает, отступ сужается */
+.cardLinkWithHandle {
+  padding: 16px 20px 16px 24px;
+  transition: padding 0.22s ease;
+}
+
+.root:hover .cardLinkWithHandle,
+.root:focus-within .cardLinkWithHandle,
+.rootDragging .cardLinkWithHandle {
+  padding: 16px 20px 16px 4px;
+}
+
+.cardLinkNoHandle {
+  padding: 16px 24px;
+}
+
+/* DragOverlay: ручка всегда развёрнута, без hover-логики родителя */
+.overlayFace .cardLinkWithHandle {
+  padding: 16px 20px 16px 4px;
+}
+
+.handleRailOverlay {
+  width: 32px;
+  min-width: 32px;
+  pointer-events: none;
+}

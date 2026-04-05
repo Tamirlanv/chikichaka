@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { ApiError } from "@/lib/api-client";
 import { getCommissionAiInterviewCandidateSession } from "@/lib/commission/query";
 import type { CommissionAiInterviewSessionView } from "@/lib/commission/types";
-
 function resolutionConfidenceLabel(
   c: NonNullable<CommissionAiInterviewSessionView["resolutionSummary"]>["confidence"],
 ): string {
@@ -44,6 +43,12 @@ export function CommissionCandidateAiInterviewPanel({ applicationId, isActive }:
   useEffect(() => {
     if (!isActive) return;
     void load();
+  }, [isActive, load]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    const id = setInterval(() => void load(), 60_000);
+    return () => clearInterval(id);
   }, [isActive, load]);
 
   if (!isActive) return null;
@@ -190,28 +195,6 @@ export function CommissionCandidateAiInterviewPanel({ applicationId, isActive }:
           </article>
         ))}
       </div>
-
-      {data.preferredSlots.length > 0 ? (
-        <div style={{ display: "grid", gap: 8, marginTop: 24, paddingTop: 16, borderTop: "1px solid #e1e1e1" }}>
-          <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "#262626" }}>Предпочтительные слоты</p>
-          <ul
-            style={{
-              margin: 0,
-              paddingLeft: 20,
-              fontSize: 14,
-              fontWeight: regularWeight,
-              color: "#626262",
-              lineHeight: 1.4,
-            }}
-          >
-            {data.preferredSlots.map((s, i) => (
-              <li key={`${s.date}-${s.timeRangeCode}-${i}`}>
-                {s.date} — {s.timeRange}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
     </div>
   );
 }

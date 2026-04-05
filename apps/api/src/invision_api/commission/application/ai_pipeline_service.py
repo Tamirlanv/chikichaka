@@ -117,6 +117,8 @@ def run_commission_ai_pipeline(
             compact_payload=compact,
             system_prompt=SYSTEM_PROMPT,
             user_message=build_user_message(prompt_version=COMMISSION_AI_PROMPT_VERSION, compact_payload=compact),
+            snapshot_flow="commission_structured_summary",
+            snapshot_application_id=str(application_id),
         )
     except Exception as e:  # noqa: BLE001 — provider / network
         commission_audit.write_event(

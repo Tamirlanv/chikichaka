@@ -33,7 +33,15 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:3000"
 
-    upload_root: str = "./data/uploads"
+    upload_root: str = Field(
+        default="./data/uploads",
+        validation_alias=AliasChoices("UPLOAD_ROOT", "upload_root"),
+        description=(
+            "Directory for LocalStorageBackend; must match API and worker in deployment. "
+            "Relative paths are resolved against the monorepo root (not process cwd) so API and worker "
+            "share the same files when both use e.g. UPLOAD_ROOT=./data/uploads."
+        ),
+    )
     max_upload_bytes_default: int = 10 * 1024 * 1024
 
     resend_api_key: str | None = None
@@ -88,12 +96,29 @@ class Settings(BaseSettings):
         description="viewer | reviewer | admin",
     )
 
+    allow_screening_passed_bypass_data_check: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("ALLOW_SCREENING_PASSED_BYPASS_DATA_CHECK"),
+        description=(
+            "Break-glass: allow POST /screening/transition screening_passed without data-check run "
+            "status ready. Only effective for global admin users. Must stay false in production."
+        ),
+    )
+
     @field_validator("database_url")
     @classmethod
     def normalize_db_url(cls, v: str) -> str:
         if v.startswith("postgresql+asyncpg://"):
             return v.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
         return v
+
+    @field_validator("upload_root", mode="after")
+    @classmethod
+    def resolve_upload_root(cls, v: str) -> str:
+        p = Path(v).expanduser()
+        if p.is_absolute():
+            return str(p.resolve())
+        return str((_REPO_ROOT / p).resolve())
 
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

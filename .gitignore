@@ -9,6 +9,8 @@ venv
 .env
 .env.local
 data/uploads
+apps/api/data/uploads
+apps/api/input_data_llm
 *.egg-info
 .DS_Store
 coverage

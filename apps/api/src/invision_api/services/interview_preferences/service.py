@@ -1,4 +1,4 @@
-"""Candidate interview time preferences: weekday slots 09–17, global uniqueness per (date, slot code)."""
+"""Candidate interview time preferences: 1-hour weekday slots 09:00–17:00; preferences only (no global booking)."""
 
 from __future__ import annotations
 
@@ -18,22 +18,38 @@ from invision_api.models.application import CandidateProfile
 from invision_api.models.commission import InterviewSlotBooking
 from invision_api.models.enums import ApplicationStage
 from invision_api.repositories import admissions_repository, ai_interview_repository
-from invision_api.services import audit_log_service
+from invision_api.services import audit_log_service, candidate_activity_service
+from invision_api.services.interview_preference_window.service import (
+    ensure_preference_window_expired_for_application,
+    has_scheduled_commission_interview,
+    mark_preferences_submitted,
+)
 
 logger = logging.getLogger(__name__)
 
 TZ = ZoneInfo("Europe/Moscow")
 
-# Non-overlapping codes within 09:00–17:00
+# One-hour bands, working day 09:00–17:00 (last slot 16:00–17:00).
 CANONICAL_SLOTS: list[tuple[str, str]] = [
-    ("09-11", "09:00–11:00"),
-    ("11-13", "11:00–13:00"),
-    ("13-15", "13:00–15:00"),
-    ("15-17", "15:00–17:00"),
+    ("09-10", "09:00–10:00"),
+    ("10-11", "10:00–11:00"),
+    ("11-12", "11:00–12:00"),
+    ("12-13", "12:00–13:00"),
+    ("13-14", "13:00–14:00"),
+    ("14-15", "14:00–15:00"),
+    ("15-16", "15:00–16:00"),
+    ("16-17", "16:00–17:00"),
 ]
 
-SLOT_CODES_ORDER = [c for c, _ in CANONICAL_SLOTS]
-SLOT_LABEL_BY_CODE = dict(CANONICAL_SLOTS)
+# Legacy 2h codes (display only for rows saved before 1h slots).
+_LEGACY_SLOT_LABELS: dict[str, str] = {
+    "09-11": "09:00–11:00",
+    "11-13": "11:00–13:00",
+    "13-15": "13:00–15:00",
+    "15-17": "15:00–17:00",
+}
+
+SLOT_LABEL_BY_CODE = {**dict(CANONICAL_SLOTS), **_LEGACY_SLOT_LABELS}
 
 
 def _require_ai_interview_completed_for_preferences(db: Session, application_id: UUID) -> None:
@@ -65,13 +81,6 @@ def _weekday_dates(start: date, end: date) -> list[date]:
     return out
 
 
-def _booked_codes_for_date(db: Session, slot_d: date) -> set[str]:
-    rows = db.scalars(
-        select(InterviewSlotBooking.time_range_code).where(InterviewSlotBooking.slot_date == slot_d)
-    ).all()
-    return set(rows)
-
-
 def list_available_days(db: Session, application_id: UUID) -> dict[str, Any]:
     app = admissions_repository.get_application_by_id(db, application_id)
     if not app:
@@ -79,15 +88,13 @@ def list_available_days(db: Session, application_id: UUID) -> dict[str, Any]:
     if app.current_stage != ApplicationStage.interview.value:
         raise HTTPException(status_code=409, detail="Доступно на этапе собеседования.")
     _require_ai_interview_completed_for_preferences(db, application_id)
+    if has_scheduled_commission_interview(db, application_id):
+        raise HTTPException(status_code=409, detail="Собеседование с комиссией уже назначено.")
 
     start = _today_moscow() + timedelta(days=1)
     end = start + timedelta(days=60)
     days_out: list[dict[str, Any]] = []
     for d in _weekday_dates(start, end):
-        booked = _booked_codes_for_date(db, d)
-        free_any = any(code not in booked for code in SLOT_CODES_ORDER)
-        if not free_any:
-            continue
         days_out.append(
             {
                 "date": d.isoformat(),
@@ -124,16 +131,23 @@ def list_available_slots_for_date(db: Session, application_id: UUID, slot_date: 
     if app.current_stage != ApplicationStage.interview.value:
         raise HTTPException(status_code=409, detail="Доступно на этапе собеседования.")
     _require_ai_interview_completed_for_preferences(db, application_id)
+    if has_scheduled_commission_interview(db, application_id):
+        raise HTTPException(status_code=409, detail="Собеседование с комиссией уже назначено.")
 
     if slot_date.weekday() >= 5:
         return {"slots": []}
 
-    booked = _booked_codes_for_date(db, slot_date)
     slots: list[dict[str, str]] = []
     for code, label in CANONICAL_SLOTS:
-        if code not in booked:
-            slots.append({"timeRangeCode": code, "label": label})
+        slots.append({"timeRangeCode": code, "label": label})
     return {"slots": slots}
+
+
+def _slot_date_allowed_range() -> tuple[date, date]:
+    """Same calendar window as list_available_days (Moscow)."""
+    start = _today_moscow() + timedelta(days=1)
+    end = start + timedelta(days=60)
+    return start, end
 
 
 def submit_interview_preferences(
@@ -147,6 +161,10 @@ def submit_interview_preferences(
         raise HTTPException(status_code=404, detail="Заявка не найдена")
     if app.current_stage != ApplicationStage.interview.value:
         raise HTTPException(status_code=409, detail="Доступно на этапе собеседования.")
+    ensure_preference_window_expired_for_application(db, application_id)
+    db.refresh(app)
+    if has_scheduled_commission_interview(db, application_id):
+        raise HTTPException(status_code=409, detail="Собеседование с комиссией уже назначено.")
     if app.interview_preferences_submitted_at is not None:
         raise HTTPException(status_code=409, detail="Предпочтения уже отправлены.")
 
@@ -155,6 +173,7 @@ def submit_interview_preferences(
     if not slots or len(slots) > 3:
         raise HTTPException(status_code=422, detail="Укажите от 1 до 3 вариантов времени.")
 
+    date_min, date_max = _slot_date_allowed_range()
     normalized: list[tuple[date, str, int]] = []
     seen_pairs: set[tuple[str, str]] = set()
     for i, raw in enumerate(slots):
@@ -166,6 +185,8 @@ def submit_interview_preferences(
             d = date.fromisoformat(ds[:10])
         except ValueError as e:
             raise HTTPException(status_code=422, detail="Некорректная дата.") from e
+        if d < date_min or d > date_max:
+            raise HTTPException(status_code=422, detail="Дата вне доступного диапазона для предпочтений.")
         if d.weekday() >= 5:
             raise HTTPException(status_code=422, detail="Выходные дни недоступны.")
         if code not in SLOT_LABEL_BY_CODE:
@@ -176,20 +197,11 @@ def submit_interview_preferences(
         seen_pairs.add(key)
         normalized.append((d, code, i + 1))
 
-    # Final availability check
-    for d, code, _ in normalized:
-        booked = _booked_codes_for_date(db, d)
-        if code in booked:
-            logger.warning(
-                "interview_preferences_slot_taken application_id=%s date=%s code=%s",
-                application_id,
-                d.isoformat(),
-                code,
-            )
-            raise HTTPException(
-                status_code=409,
-                detail=f"Слот {SLOT_LABEL_BY_CODE.get(code, code)} на {d.isoformat()} уже занят. Выберите другой вариант.",
-            )
+    if has_scheduled_commission_interview(db, application_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Собеседование с комиссией уже назначено. Обновите страницу.",
+        )
 
     now = datetime.now(tz=UTC)
     db.execute(delete(InterviewSlotBooking).where(InterviewSlotBooking.application_id == application_id))
@@ -203,6 +215,7 @@ def submit_interview_preferences(
             )
         )
     app.interview_preferences_submitted_at = now
+    mark_preferences_submitted(db, app)
     try:
         db.flush()
     except IntegrityError as e:
@@ -213,7 +226,7 @@ def submit_interview_preferences(
         )
         raise HTTPException(
             status_code=409,
-            detail="Один из выбранных слотов уже занят. Обновите список и выберите другой вариант.",
+            detail="Не удалось сохранить предпочтения. Обновите страницу и попробуйте снова.",
         ) from e
     rebuild_projection(db, application_id)
 
@@ -227,6 +240,16 @@ def submit_interview_preferences(
         actor_user_id=actor_uid,
         after_data={"slot_count": len(normalized), "submitted_at": now.isoformat()},
     )
+    if actor_uid is not None:
+        candidate_activity_service.record_candidate_activity_event(
+            db,
+            application_id=application_id,
+            candidate_user_id=actor_uid,
+            event_type="interview_preferences_submitted",
+            occurred_at=now,
+            stage=app.current_stage,
+            metadata={"slotCount": len(normalized)},
+        )
     logger.info(
         "interview_preferences_submitted application_id=%s slot_count=%s",
         application_id,

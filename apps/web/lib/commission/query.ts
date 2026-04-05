@@ -7,6 +7,7 @@ import type { InterviewBoardColumn, InterviewBoardFilters } from "./interviewTyp
 import type {
   AiInterviewDraftView,
   CommissionAiInterviewSessionView,
+  StageAdvancePreviewResponse,
   CommissionBoardApplicationCard,
   CommissionBoardFilters,
   CommissionBoardMetrics,
@@ -19,7 +20,16 @@ import type {
   CommissionRole,
   CommissionStage,
   CommissionUpdatesResponse,
+  CommissionScheduledInterviewPayload,
   ReviewScoreBlock,
+  CommissionEngagementCard,
+  CommissionEngagementResponse,
+  CommissionEngagementSort,
+  CommissionHistoryEvent,
+  CommissionHistoryResponse,
+  CommissionApplicationHistoryResponse,
+  CommissionHistoryEventFilter,
+  CommissionHistorySort,
 } from "./types";
 
 type ApiCard = Record<string, unknown>;
@@ -47,8 +57,48 @@ function asNum(v: unknown): number | null {
   return null;
 }
 
+function formatMinutesRu(totalMinutes: number): string {
+  const minutes = Math.max(0, Math.floor(totalMinutes));
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  const minutesWord =
+    mins % 10 === 1 && mins % 100 !== 11
+      ? "минута"
+      : mins % 10 >= 2 && mins % 10 <= 4 && (mins % 100 < 10 || mins % 100 >= 20)
+        ? "минуты"
+        : "минут";
+  if (hours <= 0) {
+    return `${mins} ${minutesWord}`;
+  }
+  const hoursWord =
+    hours % 10 === 1 && hours % 100 !== 11
+      ? "час"
+      : hours % 10 >= 2 && hours % 10 <= 4 && (hours % 100 < 10 || hours % 100 >= 20)
+        ? "часа"
+        : "часов";
+  return `${hours} ${hoursWord} ${mins} ${minutesWord}`;
+}
+
 function asBool(v: unknown): boolean {
   return Boolean(v);
+}
+
+function mapHistoryEvent(raw: Record<string, unknown>): CommissionHistoryEvent {
+  const categoryRaw = String(raw.eventCategory ?? raw.event_category ?? "system");
+  const eventCategory: CommissionHistoryEvent["eventCategory"] =
+    categoryRaw === "commission" || categoryRaw === "candidate" ? categoryRaw : "system";
+  return {
+    id: String(raw.id ?? ""),
+    applicationId: String(raw.applicationId ?? raw.application_id ?? ""),
+    candidateFullName: String(raw.candidateFullName ?? raw.candidate_full_name ?? "Кандидат"),
+    program: asStr(raw.program),
+    currentStage: asStr(raw.currentStage ?? raw.current_stage),
+    eventType: String(raw.eventType ?? raw.event_type ?? "Событие"),
+    eventCategory,
+    description: String(raw.description ?? ""),
+    initiator: String(raw.initiator ?? "Система"),
+    timestamp: String(raw.timestamp ?? ""),
+  };
 }
 
 export function mapApiCard(card: ApiCard): CommissionBoardApplicationCard {
@@ -75,11 +125,23 @@ export function mapApiCard(card: ApiCard): CommissionBoardApplicationCard {
     aiRecommendation: asStr(card.ai_recommendation ?? card.aiRecommendation) as CommissionBoardApplicationCard["aiRecommendation"],
     aiConfidence: asNum(card.ai_confidence ?? card.aiConfidence),
     visualState: getApplicationCardVisualState({ currentStageStatus, finalDecision, manualAttentionFlag }),
+    aiInterviewCompletedAtIso: asStr(card.ai_interview_completed_at_iso ?? card.aiInterviewCompletedAtIso),
+    rubricThreeSectionsComplete: Boolean(card.rubric_three_sections_complete ?? card.rubricThreeSectionsComplete),
+    applicationReviewTotalScore: asNum(
+      card.application_review_total_score ?? card.applicationReviewTotalScore,
+    ),
+    stageOneDataReady: Boolean(card.stage_one_data_ready ?? card.stageOneDataReady),
+    dataCheckRunStatus: asStr(card.data_check_run_status ?? card.dataCheckRunStatus),
+    interviewScheduledAtIso: asStr(card.interview_scheduled_at_iso ?? card.interviewScheduledAtIso),
   };
 }
 
+/** Default matches API max (200); avoids cards «missing» from Kanban when many applications exist. */
+const COMMISSION_BOARD_LIST_LIMIT = "200";
+
 function toParams(filters: CommissionBoardFilters): URLSearchParams {
   const p = new URLSearchParams();
+  p.set("limit", COMMISSION_BOARD_LIST_LIMIT);
   if (filters.search.trim()) p.set("search", filters.search.trim());
   if (filters.program) p.set("program", filters.program);
   return p;
@@ -91,8 +153,8 @@ function defaultMetrics(cards: CommissionBoardApplicationCard[]): CommissionBoar
   return {
     totalApplications: cards.length,
     todayApplications: cards.filter((c) => (c.submittedAt ?? "").startsWith(todayIso)).length,
-    needsAttention: cards.filter((c) => c.currentStageStatus === "needs_attention" || c.manualAttentionFlag).length,
-    aiRecommended: cards.filter((c) => c.aiRecommendation === "recommend").length,
+    foundationApplications: cards.filter((c) => c.program.trim() === "Foundation").length,
+    bachelorApplications: cards.filter((c) => c.program.trim() === "Бакалавриат").length,
   };
 }
 
@@ -107,6 +169,66 @@ export async function getArchivedCommissionApplications(
   return rows.map(mapApiCard);
 }
 
+export async function getCommissionHistoryEvents(filters: {
+  search: string;
+  program: string | null;
+  eventType: CommissionHistoryEventFilter;
+  sort: CommissionHistorySort;
+  limit?: number;
+  offset?: number;
+}): Promise<CommissionHistoryResponse> {
+  const params = new URLSearchParams();
+  if (filters.search.trim()) params.set("search", filters.search.trim());
+  if (filters.program) params.set("program", filters.program);
+  params.set("eventType", filters.eventType);
+  params.set("sort", filters.sort);
+  params.set("limit", String(Math.max(1, Math.min(filters.limit ?? 200, 500))));
+  params.set("offset", String(Math.max(0, filters.offset ?? 0)));
+  const payload = await apiFetch<Record<string, unknown>>(`/commission/history/events?${params.toString()}`);
+  const itemsRaw = Array.isArray(payload.items) ? payload.items : [];
+  const filtersRaw = (payload.filters as Record<string, unknown> | undefined) ?? {};
+  return {
+    items: itemsRaw.map((row) => mapHistoryEvent(row as Record<string, unknown>)),
+    total: asNum(payload.total) ?? 0,
+    filters: {
+      search: String(filtersRaw.search ?? ""),
+      program: asStr(filtersRaw.program),
+      eventType: String(filtersRaw.eventType ?? "all") as CommissionHistoryEventFilter,
+      sort: String(filtersRaw.sort ?? "newest") as CommissionHistorySort,
+    },
+  };
+}
+
+export async function getCommissionApplicationHistoryEvents(
+  applicationId: string,
+  filters: {
+    eventType?: CommissionHistoryEventFilter;
+    sort?: CommissionHistorySort;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<CommissionApplicationHistoryResponse> {
+  const params = new URLSearchParams();
+  params.set("eventType", filters.eventType ?? "all");
+  params.set("sort", filters.sort ?? "newest");
+  params.set("limit", String(Math.max(1, Math.min(filters.limit ?? 200, 500))));
+  params.set("offset", String(Math.max(0, filters.offset ?? 0)));
+  const payload = await apiFetch<Record<string, unknown>>(
+    `/commission/applications/${applicationId}/history-events?${params.toString()}`,
+  );
+  const itemsRaw = Array.isArray(payload.items) ? payload.items : [];
+  const filtersRaw = (payload.filters as Record<string, unknown> | undefined) ?? {};
+  return {
+    applicationId: String(payload.applicationId ?? payload.application_id ?? applicationId),
+    items: itemsRaw.map((row) => mapHistoryEvent(row as Record<string, unknown>)),
+    total: asNum(payload.total) ?? 0,
+    filters: {
+      eventType: String(filtersRaw.eventType ?? "all") as CommissionHistoryEventFilter,
+      sort: String(filtersRaw.sort ?? "newest") as CommissionHistorySort,
+    },
+  };
+}
+
 export async function getBoardMetrics(filters: CommissionBoardFilters): Promise<CommissionBoardMetrics> {
   try {
     const params = new URLSearchParams();
@@ -116,7 +238,8 @@ export async function getBoardMetrics(filters: CommissionBoardFilters): Promise<
     return await apiFetch<CommissionBoardMetrics>(`/commission/metrics?${params.toString()}`);
   } catch {
     // Fallback for old backend contract.
-    const rows = await apiFetch<ApiCard[]>(`/commission/applications?${toParams(filters).toString()}`);
+    const p = toParams(filters);
+    const rows = await apiFetch<ApiCard[]>(`/commission/applications?${p.toString()}`);
     const cards = rows.map(mapApiCard);
     return defaultMetrics(cards);
   }
@@ -136,13 +259,34 @@ export async function getCommissionBoard(filters: CommissionBoardFilters): Promi
   return { filters, columns, metrics };
 }
 
-export async function getCommissionRole(): Promise<CommissionRole | null> {
+export type CommissionMe = {
+  userId: string;
+  email: string | null;
+  role: CommissionRole | null;
+};
+
+export async function getCommissionMe(): Promise<CommissionMe | null> {
   try {
-    const data = await apiFetch<{ role: CommissionRole | null }>("/commission/me");
-    return data.role;
+    return await apiFetch<CommissionMe>("/commission/me");
   } catch {
     return null;
   }
+}
+
+export async function getCommissionRole(): Promise<CommissionRole | null> {
+  const me = await getCommissionMe();
+  return me?.role ?? null;
+}
+
+/** Поиск заявок для страницы «Документы» (без фильтра по колонке канбана). */
+export async function searchCommissionApplicationsForDocuments(query: string): Promise<CommissionBoardApplicationCard[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const params = new URLSearchParams();
+  params.set("search", q);
+  params.set("limit", "200");
+  const rows = await apiFetch<ApiCard[]>(`/commission/applications?${params.toString()}`);
+  return rows.map(mapApiCard);
 }
 
 export async function getCommissionInterviewBoard(filters: InterviewBoardFilters): Promise<InterviewBoardColumn[]> {
@@ -156,6 +300,87 @@ export async function getCommissionInterviewBoard(filters: InterviewBoardFilters
   const rows = await apiFetch<Record<string, unknown>[]>(`/commission/applications?${p.toString()}`);
   const cards = rows.map(mapApiRowToInterviewCard);
   return buildInterviewColumns(cards);
+}
+
+function mapEngagementCard(card: Record<string, unknown>): CommissionEngagementCard {
+  const engagementRaw = String(card.engagementLevel ?? card.engagement_level ?? "Medium");
+  const riskRaw = String(card.riskLevel ?? card.risk_level ?? "Medium");
+  const engagementLevel: CommissionEngagementCard["engagementLevel"] =
+    engagementRaw === "High" || engagementRaw === "Low" ? engagementRaw : "Medium";
+  const riskLevel: CommissionEngagementCard["riskLevel"] =
+    riskRaw === "High" || riskRaw === "Low" ? riskRaw : "Medium";
+  const breakdown = (card.breakdown as Record<string, unknown> | undefined) ?? {};
+  const activeTimeScore = asNum(breakdown.active_time_score ?? breakdown.activeTimeScore);
+  const activeTimeHumanizedRaw = asStr(card.activeTimeHumanized ?? card.active_time_humanized);
+
+  return {
+    applicationId: String(card.applicationId ?? card.application_id ?? ""),
+    candidateFullName: String(card.candidateFullName ?? card.candidate_full_name ?? "Кандидат"),
+    lastActivityAtIso: asStr(card.lastActivityAtIso ?? card.last_activity_at_iso),
+    lastActivityHumanized: String(card.lastActivityHumanized ?? card.last_activity_humanized ?? "нет активности"),
+    activeTimeHumanized:
+      activeTimeHumanizedRaw ??
+      (activeTimeScore != null ? formatMinutesRu(activeTimeScore) : null),
+    engagementLevel,
+    riskLevel,
+    program: asStr(card.program),
+    currentStage: asStr(card.currentStage ?? card.current_stage),
+  };
+}
+
+export async function getCommissionEngagementBoard(
+  filters: {
+    search: string;
+    program: string | null;
+    sort: CommissionEngagementSort;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<CommissionEngagementResponse> {
+  const params = new URLSearchParams();
+  const q = filters.search.trim();
+  if (q) params.set("search", q);
+  if (filters.program) params.set("program", filters.program);
+  params.set("sort", filters.sort);
+  params.set("limit", String(Math.max(1, Math.min(filters.limit ?? 200, 200))));
+  params.set("offset", String(Math.max(0, filters.offset ?? 0)));
+  const payload = await apiFetch<Record<string, unknown>>(`/commission/engagement?${params.toString()}`);
+
+  const rawFilters = (payload.filters as Record<string, unknown> | undefined) ?? {};
+  const rawTotals = (payload.totals as Record<string, unknown> | undefined) ?? {};
+  const rawColumns = Array.isArray(payload.columns) ? payload.columns : [];
+
+  return {
+    filters: {
+      search: String(rawFilters.search ?? ""),
+      program: asStr(rawFilters.program),
+      sort: (String(rawFilters.sort ?? "risk") as CommissionEngagementSort),
+    },
+    totals: {
+      total: asNum(rawTotals.total) ?? 0,
+      highRisk: asNum(rawTotals.highRisk ?? rawTotals.high_risk) ?? 0,
+      mediumRisk: asNum(rawTotals.mediumRisk ?? rawTotals.medium_risk) ?? 0,
+      lowRisk: asNum(rawTotals.lowRisk ?? rawTotals.low_risk) ?? 0,
+    },
+    columns: rawColumns
+      .map((col) => {
+        const c = col as Record<string, unknown>;
+        const idRaw = String(c.id ?? "");
+        if (idRaw !== "high_risk" && idRaw !== "medium_risk" && idRaw !== "low_risk") return null;
+        return {
+          id: idRaw,
+          title: String(c.title ?? ""),
+          cards: (Array.isArray(c.cards) ? c.cards : []).map((r) => mapEngagementCard(r as Record<string, unknown>)),
+        };
+      })
+      .filter((c): c is CommissionEngagementResponse["columns"][number] => c !== null),
+  };
+}
+
+export async function getStageAdvancePreview(applicationId: string): Promise<StageAdvancePreviewResponse> {
+  return await apiFetch<StageAdvancePreviewResponse>(
+    `/commission/applications/${applicationId}/stage-advance-preview`,
+  );
 }
 
 export async function moveApplicationToNextStage(applicationId: string, reasonComment?: string): Promise<void> {
@@ -322,6 +547,32 @@ export async function getCommissionAiInterviewCandidateSession(
   );
 }
 
+export async function postCommissionInterviewSchedule(
+  applicationId: string,
+  body: {
+    scheduledAt: string;
+    interviewMode?: string | null;
+    locationOrLink?: string | null;
+  },
+): Promise<{ ok: boolean; scheduledInterview: CommissionScheduledInterviewPayload }> {
+  return await apiFetch(`/commission/applications/${applicationId}/commission-interview/schedule`, {
+    method: "POST",
+    json: {
+      scheduledAt: body.scheduledAt,
+      interviewMode: body.interviewMode ?? null,
+      locationOrLink: body.locationOrLink ?? null,
+    },
+  });
+}
+
+export async function postCommissionInterviewOutcome(
+  applicationId: string,
+): Promise<{ ok: boolean; scheduledInterview: CommissionScheduledInterviewPayload }> {
+  return await apiFetch(`/commission/applications/${applicationId}/commission-interview/outcome`, {
+    method: "POST",
+  });
+}
+
 export async function generateAiInterviewDraft(applicationId: string, force = false): Promise<AiInterviewDraftView> {
   return await apiFetch<AiInterviewDraftView>(`/commission/applications/${applicationId}/ai-interview/generate`, {
     method: "POST",
@@ -368,3 +619,28 @@ export async function openCommissionApplicationDocumentInNewTab(
   // Один object URL на клик — приемлемая утечка до перезагрузки страницы комиссии.
 }
 
+/** Скачать файл документа (тот же blob, что и для просмотра). */
+export async function downloadCommissionApplicationDocument(
+  applicationId: string,
+  documentId: string,
+  fileName: string,
+): Promise<void> {
+  const blob = await apiFetchBlob(
+    `/commission/applications/${applicationId}/documents/${documentId}/file`,
+  );
+  if (blob.size === 0) {
+    throw new Error("Пустой файл — нечего скачать.");
+  }
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    a.download = fileName || "document";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  }
+}

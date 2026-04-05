@@ -2,16 +2,26 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { PillSegmentedControl } from "@/components/application/PillSegmentedControl";
 import { CandidateInterviewPreferencesForm } from "@/components/application/CandidateInterviewPreferencesForm";
-import { ApiError, apiFetchCached } from "@/lib/api-client";
+import { ApiError, apiFetch, apiFetchCached } from "@/lib/api-client";
+import { postCandidateActivityEventSafe } from "@/lib/candidate-activity";
+import { isInterviewStage, type CandidateApplicationStatus } from "@/lib/candidate-status";
+import {
+  CommissionInterviewScheduledBanner,
+  CommissionInterviewScheduledCard,
+} from "@/components/application/CommissionInterviewScheduledCard";
 import {
   getCandidateAiInterviewAnswers,
   getCandidateAiInterviewQuestions,
   getCandidateAiInterviewStatus,
   postCandidateAiInterviewAnswers,
   postCandidateAiInterviewComplete,
+  postCommissionInterviewReminder,
   type AiInterviewCandidateQuestion,
+  type PreferenceWindowPayload,
+  type ScheduledInterviewPayload,
 } from "@/lib/candidate-ai-interview";
 import styles from "./interview-page.module.css";
 
@@ -20,6 +30,29 @@ const THINKING_DELAY_MS = 3500;
 const THINKING_DELAY_REDUCED_MS = 200;
 
 type InterviewTab = "ai" | "commission";
+
+function PreferenceCountdown({ expiresAt, show }: { expiresAt: string | null; show: boolean }) {
+  const [left, setLeft] = useState<number | null>(null);
+  useEffect(() => {
+    if (!show || !expiresAt) {
+      setLeft(null);
+      return;
+    }
+    const exp = new Date(expiresAt).getTime();
+    const tick = () => setLeft(Math.max(0, Math.floor((exp - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [expiresAt, show]);
+  if (!show || left === null) return null;
+  const m = Math.floor(left / 60);
+  const sec = left % 60;
+  return (
+    <p style={{ margin: 0, fontSize: 14, color: "#626262" }}>
+      Окно для отправки предпочтений: осталось {m} мин. {sec.toString().padStart(2, "0")} сек.
+    </p>
+  );
+}
 
 function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
@@ -34,6 +67,7 @@ function useReducedMotion(): boolean {
 }
 
 export default function CandidateInterviewPage() {
+  const router = useRouter();
   const [interviewTab, setInterviewTab] = useState<InterviewTab>("ai");
   const [firstName, setFirstName] = useState("");
   const [questions, setQuestions] = useState<AiInterviewCandidateQuestion[]>([]);
@@ -47,6 +81,8 @@ export default function CandidateInterviewPage() {
   const [thinkingAfterQuestionId, setThinkingAfterQuestionId] = useState<string | null>(null);
   const [aiInterviewCompleted, setAiInterviewCompleted] = useState(false);
   const [preferencesSubmitted, setPreferencesSubmitted] = useState(false);
+  const [preferenceWindow, setPreferenceWindow] = useState<PreferenceWindowPayload | null>(null);
+  const [scheduledInterview, setScheduledInterview] = useState<ScheduledInterviewPayload | null>(null);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const [finalizePending, setFinalizePending] = useState(false);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
@@ -54,6 +90,8 @@ export default function CandidateInterviewPage() {
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finalizeOnceRef = useRef(false);
   const localAiCompleteRef = useRef(false);
+  const interviewInfoLoggedRef = useRef(false);
+  const interviewInstructionLoggedRef = useRef(false);
   const reducedMotion = useReducedMotion();
   const reducedMotionRef = useRef(false);
   reducedMotionRef.current = reducedMotion;
@@ -63,6 +101,11 @@ export default function CandidateInterviewPage() {
     setLoading(true);
     setError(null);
     try {
+      const stageCheck = await apiFetch<CandidateApplicationStatus>("/candidates/me/application/status");
+      if (!isInterviewStage(stageCheck)) {
+        router.replace("/application");
+        return;
+      }
       const [me, qData, aData] = await Promise.all([
         apiFetchCached<{ profile?: { first_name?: string } | null }>("/auth/me", ME_TTL_MS),
         getCandidateAiInterviewQuestions(),
@@ -80,6 +123,8 @@ export default function CandidateInterviewPage() {
         setStatusSyncError(false);
         setAiInterviewCompleted(st.aiInterviewCompleted);
         setPreferencesSubmitted(st.preferencesSubmitted);
+        setPreferenceWindow(st.preferenceWindow ?? null);
+        setScheduledInterview(st.scheduledInterview ?? null);
         if (st.aiInterviewCompleted) {
           finalizeOnceRef.current = true;
           setInterviewTab("commission");
@@ -105,7 +150,7 @@ export default function CandidateInterviewPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     void load();
@@ -117,6 +162,24 @@ export default function CandidateInterviewPage() {
       if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (interviewInfoLoggedRef.current) return;
+    interviewInfoLoggedRef.current = true;
+    void postCandidateActivityEventSafe({
+      eventType: "interview_info_opened",
+      metadata: { screen: "candidate_interview_page" },
+    });
+  }, []);
+
+  useEffect(() => {
+    if (interviewTab !== "commission" || interviewInstructionLoggedRef.current) return;
+    interviewInstructionLoggedRef.current = true;
+    void postCandidateActivityEventSafe({
+      eventType: "interview_instruction_opened",
+      metadata: { hasScheduledInterview: Boolean(scheduledInterview?.scheduledAt) },
+    });
+  }, [interviewTab, scheduledInterview?.scheduledAt]);
 
   const sorted = useMemo(() => [...questions].sort((a, b) => a.sortOrder - b.sortOrder), [questions]);
 
@@ -168,6 +231,12 @@ export default function CandidateInterviewPage() {
       }
     })();
   }, [loading, allAnswered, aiInterviewCompleted]);
+
+  useEffect(() => {
+    if (interviewTab !== "commission" || scheduledInterview?.scheduledAt) return;
+    const id = setInterval(() => void load(), 45000);
+    return () => clearInterval(id);
+  }, [interviewTab, scheduledInterview?.scheduledAt, load]);
 
   async function handleSend() {
     if (!firstUnanswered) return;
@@ -400,23 +469,62 @@ export default function CandidateInterviewPage() {
         </>
       ) : (
         <div style={{ marginTop: 24, display: "grid", gap: 16 }}>
-          {preferencesSubmitted ? (
-            <p style={{ margin: 0, fontSize: 14, color: "#262626" }}>
-              Спасибо! Ваши предпочтения по времени сохранены. Комиссия свяжется с вами для назначения собеседования.
+          {scheduledInterview?.scheduledAt ? (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 24,
+                alignItems: "center",
+                width: "100%",
+              }}
+            >
+              <CommissionInterviewScheduledBanner />
+              <CommissionInterviewScheduledCard
+                scheduledAt={scheduledInterview.scheduledAt}
+                interviewMode={scheduledInterview.interviewMode}
+                locationOrLink={scheduledInterview.locationOrLink}
+                reminderRequestedAt={scheduledInterview.reminderRequestedAt ?? null}
+                reminderSentAt={scheduledInterview.reminderSentAt ?? null}
+                onRequestReminder={async () => {
+                  await postCommissionInterviewReminder();
+                  const st = await getCandidateAiInterviewStatus();
+                  setScheduledInterview(st.scheduledInterview ?? null);
+                  setPreferenceWindow(st.preferenceWindow ?? null);
+                  setPreferencesSubmitted(st.preferencesSubmitted);
+                }}
+              />
+            </div>
+          ) : preferencesSubmitted ? (
+            <p style={{ margin: 0, fontSize: 14, color: "#262626", lineHeight: 1.5 }}>
+              Спасибо! Ваши предпочтения по времени переданы комиссии. Окончательную дату, время и ссылку на встречу
+              назначит комиссия — они появятся здесь после назначения.
             </p>
           ) : (
-            <CandidateInterviewPreferencesForm
-              disabled={!aiInterviewCompleted}
-              onSubmitted={async () => {
-                setPreferencesSubmitted(true);
-                try {
-                  const st = await getCandidateAiInterviewStatus();
-                  setPreferencesSubmitted(st.preferencesSubmitted);
-                } catch {
-                  setPreferencesSubmitted(true);
+            <>
+              <PreferenceCountdown
+                expiresAt={preferenceWindow?.expiresAt ?? null}
+                show={
+                  preferenceWindow?.status === "awaiting_candidate_preferences" &&
+                  Boolean(preferenceWindow?.expiresAt)
                 }
-              }}
-            />
+              />
+              <CandidateInterviewPreferencesForm
+                disabled={!aiInterviewCompleted}
+                onConflict={() => void load()}
+                onSubmitted={async () => {
+                  setPreferencesSubmitted(true);
+                  try {
+                    const st = await getCandidateAiInterviewStatus();
+                    setPreferencesSubmitted(st.preferencesSubmitted);
+                    setPreferenceWindow(st.preferenceWindow ?? null);
+                    setScheduledInterview(st.scheduledInterview ?? null);
+                  } catch {
+                    setPreferencesSubmitted(true);
+                  }
+                }}
+              />
+            </>
           )}
         </div>
       )}

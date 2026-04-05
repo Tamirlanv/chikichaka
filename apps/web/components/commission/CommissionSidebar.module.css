@@ -125,12 +125,48 @@
   text-decoration: none;
 }
 
+/* globals.css задаёт a:hover { text-decoration: underline } — перебиваем, оставляем только подложку */
+.item:hover,
+.item:focus,
+.item:focus-visible,
+.item:active {
+  text-decoration: none;
+}
+
 .item:hover {
   background: #f9f9f9;
 }
 
+.item.active:hover {
+  background: rgba(152, 218, 0, 0.1);
+}
+
 .active {
-  color: #1d3a00;
+  color: #98da00;
+}
+
+.itemIcon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: block;
+  /* currentColor здесь не всегда совпадает с цветом ссылки (маска + глобальные a { color }) */
+  background-color: #262626;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
+.item.active .itemIcon {
+  background-color: #98da00;
+}
+
+.item:focus-visible {
+  outline: 2px solid #98da00;
+  outline-offset: 2px;
 }
 
 .itemLabel {

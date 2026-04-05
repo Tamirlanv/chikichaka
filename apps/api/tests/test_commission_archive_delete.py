@@ -40,6 +40,7 @@ def test_archive_by_commission_marks_old_and_creates_new_active(db: Session, fac
     assert new_app.id == out["new_application_id"]
     assert new_app.is_archived is False
     assert new_app.state == ApplicationState.draft.value
+    assert new_app.current_stage == ApplicationStage.application.value
 
     active_rows = commission_repository.list_projections(db, limit=200)
     assert all(r.application_id != old_id for r in active_rows)

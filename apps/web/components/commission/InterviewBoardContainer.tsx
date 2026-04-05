@@ -5,6 +5,7 @@ import { getCommissionInterviewBoard } from "@/lib/commission/query";
 import { subscribeToUpdates, unsubscribeFromUpdates } from "@/lib/commission/revalidate";
 import type { InterviewBoardColumn, InterviewBoardFilters } from "@/lib/commission/interviewTypes";
 import { InterviewColumn } from "./InterviewColumn";
+import boardStyles from "./BoardContainer.module.css";
 
 type Props = {
   filters: InterviewBoardFilters;
@@ -72,17 +73,9 @@ export function InterviewBoardContainer({ filters, onError }: Props) {
   }
 
   return (
-    <section
-      style={{
-        display: "flex",
-        gap: 20,
-        overflowX: "auto",
-        alignItems: "flex-start",
-        paddingBottom: 12,
-      }}
-    >
-      {columns.map((col) => (
-        <InterviewColumn key={col.id} column={col} />
+    <section className={boardStyles.boardScrollStrip}>
+      {columns.map((col, idx) => (
+        <InterviewColumn key={col.id} order={idx + 1} column={col} />
       ))}
     </section>
   );

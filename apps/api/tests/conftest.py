@@ -32,12 +32,21 @@ from invision_api.models.application import (  # noqa: E402
     ApplicationSectionState,
     ApplicationStageHistory,
     CandidateProfile,
+    InternalTestAnswer,
+    InternalTestQuestion,
 )
 from invision_api.models.application_raw_submission_snapshot import ApplicationRawSubmissionSnapshot  # noqa: E402
+from invision_api.models.candidate_activity_event import CandidateActivityEvent  # noqa: E402
 from invision_api.models.candidate_signals_aggregate import CandidateSignalsAggregate  # noqa: E402
 from invision_api.models.commission import ApplicationCommissionProjection  # noqa: E402
 from invision_api.models.data_check_unit_result import DataCheckUnitResult  # noqa: E402
-from invision_api.models.enums import ApplicationStage, ApplicationState, SectionKey  # noqa: E402
+from invision_api.models.enums import (  # noqa: E402
+    ApplicationStage,
+    ApplicationState,
+    QuestionCategory,
+    QuestionType,
+    SectionKey,
+)
 from invision_api.models.user import Role, User, UserRole  # noqa: E402
 
 # Import all models so Base.metadata knows about every table.
@@ -210,6 +219,8 @@ class Factory:
             },
             SectionKey.internal_test.value: {
                 "acknowledged_instructions": True,
+                "consent_privacy": True,
+                "consent_parent": True,
             },
             SectionKey.social_status_cert.value: {
                 "attestation": "Подтверждаю социальный статус данного заявления",
@@ -233,6 +244,62 @@ class Factory:
                 last_saved_at=datetime.now(tz=UTC),
             ))
         db.flush()
+        Factory.seed_internal_test_completion(db, app)
+
+    @staticmethod
+    def seed_internal_test_completion(db: Session, app: Application) -> None:
+        """Insert internal_test answers so completion matches _internal_test_complete (DB + consents)."""
+        from invision_api.repositories import internal_test_repository
+
+        questions = internal_test_repository.list_active_questions(db)
+        if not questions:
+            for idx in (1, 2):
+                q = InternalTestQuestion(
+                    id=uuid4(),
+                    category=QuestionCategory.leadership_scenarios.value,
+                    question_type=QuestionType.single_choice.value,
+                    prompt=f"factory Q{idx}",
+                    options=[
+                        {"id": "A", "label": "A"},
+                        {"id": "B", "label": "B"},
+                    ],
+                    display_order=idx,
+                    is_active=True,
+                    version=1,
+                )
+                db.add(q)
+                db.flush()
+            questions = internal_test_repository.list_active_questions(db)
+
+        now = datetime.now(tz=UTC)
+        for q in questions:
+            if internal_test_repository.get_answer(db, app.id, q.id):
+                continue
+            qt = q.question_type
+            text_answer: str | None = None
+            selected: list[str] | None = None
+            if qt == QuestionType.text.value:
+                text_answer = "Factory test answer"
+            elif qt in (QuestionType.single_choice.value, QuestionType.multi_choice.value):
+                opts = q.options or []
+                if opts and isinstance(opts[0], dict) and opts[0].get("id") is not None:
+                    first = str(opts[0]["id"])
+                else:
+                    first = "A"
+                selected = [first]
+
+            db.add(
+                InternalTestAnswer(
+                    application_id=app.id,
+                    question_id=q.id,
+                    text_answer=text_answer,
+                    selected_options=selected,
+                    saved_at=now,
+                    submitted_at=None,
+                    is_finalized=False,
+                )
+            )
+        db.flush()
 
 
 @pytest.fixture
@@ -246,3 +313,4 @@ def ensure_data_check_tables(db: Session) -> None:
     ApplicationRawSubmissionSnapshot.__table__.create(bind=bind, checkfirst=True)
     DataCheckUnitResult.__table__.create(bind=bind, checkfirst=True)
     CandidateSignalsAggregate.__table__.create(bind=bind, checkfirst=True)
+    CandidateActivityEvent.__table__.create(bind=bind, checkfirst=True)

@@ -9,7 +9,7 @@ AvailabilityStatus = Literal["reachable", "unreachable", "timeout", "forbidden",
 ProviderType = Literal["generic", "google_drive", "google_docs", "dropbox", "onedrive", "youtube", "vimeo", "unknown"]
 ResourceType = Literal["web_page", "file", "video", "cloud_resource", "unknown"]
 
-VideoPresentationProvider = Literal["google_drive", "youtube", "direct", "unknown"]
+VideoPresentationProvider = Literal["google_drive", "youtube", "dropbox", "direct", "unknown"]
 VideoPresentationResourceType = Literal[
     "video",
     "folder",
@@ -81,6 +81,7 @@ class VideoLinkValidationResult(BaseModel):
     isProcessableVideo: bool
     detectedMimeType: str | None = None
     detectedExtension: str | None = None
+    normalizedUrl: str | None = None
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 

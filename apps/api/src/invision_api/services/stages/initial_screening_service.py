@@ -7,10 +7,13 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from invision_api.models.application import Application
-from invision_api.models.enums import ApplicationStage, ScreeningResult, SectionKey
+from invision_api.models.user import Role, User, UserRole
+from invision_api.models.enums import ApplicationStage, RoleName, ScreeningResult, SectionKey
 from invision_api.repositories import admissions_repository, document_repository
 from invision_api.services import application_service, job_dispatcher_service, text_extraction_service
 from invision_api.services.stage_transition_policy import TransitionContext, TransitionName, apply_transition
@@ -128,6 +131,39 @@ def apply_screening_transition(
 def ensure_stage(db: Session, app: Application) -> None:
     if app.current_stage != ApplicationStage.initial_screening.value:
         raise ValueError("application must be in initial_screening stage")
+
+
+def ensure_manual_screening_passed_allowed(db: Session, *, application_id: UUID, user: User) -> None:
+    """Reject manual screening_passed unless the data-check pipeline aggregate status is ``ready``.
+
+    Optional break-glass: global admin may bypass when ``allow_screening_passed_bypass_data_check`` is true.
+    """
+    from invision_api.core.config import get_settings
+    from invision_api.services.ai_interview.data_readiness import is_data_processing_ready
+
+    settings = get_settings()
+    if settings.allow_screening_passed_bypass_data_check:
+        role_names = set(
+            db.scalars(
+                select(Role.name).join(UserRole, UserRole.role_id == Role.id).where(UserRole.user_id == user.id)
+            ).all()
+        )
+        if RoleName.admin.value in role_names:
+            return
+
+    if is_data_processing_ready(db, application_id):
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "DATA_CHECK_NOT_READY",
+            "message": (
+                "Переход на «Оценку заявки» возможен только после успешного завершения проверки данных "
+                "(все блоки обработки в статусе успеха)."
+            ),
+        },
+    )
 
 
 def run_post_submit_content_analysis(db: Session, app: Application) -> dict[str, Any]:

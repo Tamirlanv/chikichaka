@@ -14,13 +14,21 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from invision_api.models.application import TextAnalysisRun
+from invision_api.models.application import Application, TextAnalysisRun
 from invision_api.models.candidate_signals_aggregate import CandidateSignalsAggregate
 from invision_api.models.data_check_unit_result import DataCheckUnitResult
 from invision_api.repositories import data_check_repository
-from invision_api.services.data_check.status_service import TERMINAL_UNIT_STATUSES, compute_run_status
-from invision_api.models.enums import DataCheckUnitType
+from invision_api.services.data_check.status_service import TERMINAL_UNIT_STATUSES, UNIT_POLICIES, compute_run_status
+from invision_api.models.enums import ApplicationStage, DataCheckUnitType
 from invision_api.repositories import ai_interview_repository
+from invision_api.commission.application.reviewer_text_sanitizer import (
+    dedupe_keep_order as _shared_dedupe_keep_order,
+    is_ui_friendly_sentence as _shared_is_ui_friendly_sentence,
+    sanitize_reviewer_text as _shared_sanitize_reviewer_text,
+    split_sentences as _shared_split_sentences,
+    strip_technical_residue as _shared_strip_technical_residue,
+    truncate_sentence as _shared_truncate_sentence,
+)
 
 # Подписи для комиссии (без snake_case в UI)
 _DATA_CHECK_UNIT_LABEL_RU: dict[str, str] = {
@@ -145,32 +153,68 @@ def _parse_numeric_score(raw: Any) -> float | None:
     return None
 
 
+def _certificate_exam_type_blob(ex: dict[str, Any], dr: dict[str, Any]) -> str:
+    """Types from resolved classifier, OCR classifier, and top-level row (for sidebar slot + labels)."""
+    parts = [
+        str(ex.get("documentType") or ""),
+        str(ex.get("ocrDocumentType") or ""),
+        str(dr.get("documentType") or ""),
+    ]
+    return " ".join(parts).lower()
+
+
+def _slot_from_type_hints(ex: dict[str, Any], dr: dict[str, Any]) -> str | None:
+    """Infer english vs certificate from merged type strings (incl. ocrDocumentType when resolved is unknown)."""
+    c = _certificate_exam_type_blob(ex, dr)
+    if "ielts" in c or "toefl" in c:
+        return "english"
+    if "nis_12" in c or re.search(r"\bnis\b|ниш|nazarbayev|intellectual schools", c):
+        return "certificate"
+    if "ent" in c or "ент" in c or "unt" in c:
+        return "certificate"
+    return None
+
+
 def _slot_for_certificate_result(
     dr: dict[str, Any],
     *,
     english_document_id: UUID | None,
     certificate_document_id: UUID | None,
+    additional_document_id: UUID | None = None,
 ) -> str | None:
     """Map a certificate_validation result row to 'english' or 'certificate' using document id or type hints."""
     ex = dr.get("examDocument") if isinstance(dr.get("examDocument"), dict) else {}
     doc_id_str = ex.get("documentId")
+    doc_uuid: UUID | None = None
     if isinstance(doc_id_str, str) and doc_id_str:
         try:
             doc_uuid = UUID(doc_id_str)
         except ValueError:
             doc_uuid = None
-        else:
-            if english_document_id and doc_uuid == english_document_id:
-                return "english"
-            if certificate_document_id and doc_uuid == certificate_document_id:
-                return "certificate"
 
-    combined = f"{ex.get('documentType') or ''} {dr.get('documentType') or ''}".lower()
-    if "ielts" in combined or "toefl" in combined:
-        return "english"
-    if "ent" in combined or "ент" in combined or "unt" in combined:
-        return "certificate"
-    return None
+    if doc_uuid is not None:
+        if english_document_id and doc_uuid == english_document_id:
+            return "english"
+        if certificate_document_id and doc_uuid == certificate_document_id:
+            return "certificate"
+        if additional_document_id and doc_uuid == additional_document_id:
+            hinted = _slot_from_type_hints(ex, dr)
+            if hinted is not None:
+                return hinted
+
+    return _slot_from_type_hints(ex, dr)
+
+
+def _is_certificate_nis(ex: dict[str, Any], dr: dict[str, Any]) -> bool:
+    c = _certificate_exam_type_blob(ex, dr)
+    if "nis_12" in c:
+        return True
+    return bool(re.search(r"\bnis\b|ниш|nazarbayev|intellectual schools", c))
+
+
+def _is_english_toefl(ex: dict[str, Any], dr: dict[str, Any]) -> bool:
+    c = _certificate_exam_type_blob(ex, dr)
+    return "toefl" in c
 
 
 def _build_documents_scores_items(
@@ -178,10 +222,13 @@ def _build_documents_scores_items(
     *,
     english_document_id: UUID | None,
     certificate_document_id: UUID | None,
+    additional_document_id: UUID | None = None,
 ) -> list[SidebarItem]:
-    """ЕНТ / IELTS lines from certificate_validation first-stage payload (examDocument.detectedScore)."""
+    """ЕНТ / NIS / IELTS / TOEFL lines from certificate_validation first-stage payload (examDocument.detectedScore)."""
     ent_score: float | None = None
+    nis_score: float | None = None
     ielts_score: float | None = None
+    toefl_score: float | None = None
 
     if cert_unit and cert_unit.result_payload:
         for dr in cert_unit.result_payload.get("results") or []:
@@ -191,13 +238,29 @@ def _build_documents_scores_items(
                 dr,
                 english_document_id=english_document_id,
                 certificate_document_id=certificate_document_id,
+                additional_document_id=additional_document_id,
             )
             ex = dr.get("examDocument") if isinstance(dr.get("examDocument"), dict) else {}
             score = _parse_numeric_score(ex.get("detectedScore"))
-            if slot == "certificate" and score is not None:
-                ent_score = score
-            elif slot == "english" and score is not None:
-                ielts_score = score
+            if score is None:
+                continue
+            if slot == "certificate":
+                if _is_certificate_nis(ex, dr):
+                    nis_score = score
+                else:
+                    ent_score = score
+            elif slot == "english":
+                if _is_english_toefl(ex, dr):
+                    toefl_score = score
+                else:
+                    ielts_score = score
+
+    def _nis_item(score: float | None) -> dict[str, Any]:
+        if score is None:
+            return {"text": "NIS: —", "tone": "neutral"}
+        display = str(int(score)) if score == int(score) else f"{score:.1f}".rstrip("0").rstrip(".")
+        tone = "success" if score >= _ENT_PASS_MIN else "danger"
+        return {"text": f"NIS: {display}", "tone": tone}
 
     def _ent_item(score: float | None) -> dict[str, Any]:
         if score is None:
@@ -206,21 +269,99 @@ def _build_documents_scores_items(
         tone = "success" if score >= _ENT_PASS_MIN else "danger"
         return {"text": f"ЕНТ: {display}", "tone": tone}
 
+    def _toefl_item(score: float | None) -> dict[str, Any]:
+        if score is None:
+            return {"text": "TOEFL: —", "tone": "neutral"}
+        display = str(int(score)) if score == int(score) else f"{score:.1f}".rstrip("0").rstrip(".")
+        tone = "success" if score >= 60 else "danger"
+        return {"text": f"TOEFL: {display}", "tone": tone}
+
     def _ielts_item(score: float | None) -> dict[str, Any]:
         if score is None:
             return {"text": "IELTS: —", "tone": "neutral"}
         tone = "success" if score >= _IELTS_PASS_MIN else "danger"
         return {"text": f"IELTS: {score:.1f}", "tone": tone}
 
-    return [_ent_item(ent_score), _ielts_item(ielts_score)]
+    cert_line: dict[str, Any]
+    if ent_score is not None:
+        cert_line = _ent_item(ent_score)
+    elif nis_score is not None:
+        cert_line = _nis_item(nis_score)
+    else:
+        cert_line = _ent_item(None)
+
+    eng_line: dict[str, Any]
+    if toefl_score is not None:
+        eng_line = _toefl_item(toefl_score)
+    elif ielts_score is not None:
+        eng_line = _ielts_item(ielts_score)
+    else:
+        eng_line = {"text": "IELTS/TOEFL: —", "tone": "neutral"}
+
+    return [cert_line, eng_line]
+
+
+def compute_commission_document_borders(
+    cert_unit: DataCheckUnitResult | None,
+    *,
+    english_document_id: UUID | None,
+    certificate_document_id: UUID | None,
+    additional_document_id: UUID | None,
+) -> dict[str, str]:
+    """Map document UUID string -> green | red | gray for commission documents list cards."""
+    out: dict[str, str] = {}
+    if not cert_unit or not cert_unit.result_payload:
+        return out
+    for dr in cert_unit.result_payload.get("results") or []:
+        if not isinstance(dr, dict):
+            continue
+        ex = dr.get("examDocument") if isinstance(dr.get("examDocument"), dict) else {}
+        doc_id_str = ex.get("documentId")
+        if not isinstance(doc_id_str, str) or not doc_id_str.strip():
+            continue
+        score = _parse_numeric_score(ex.get("detectedScore"))
+        slot = _slot_for_certificate_result(
+            dr,
+            english_document_id=english_document_id,
+            certificate_document_id=certificate_document_id,
+            additional_document_id=additional_document_id,
+        )
+        if slot is None:
+            continue
+        if slot == "english":
+            if _is_english_toefl(ex, dr):
+                if score is None:
+                    tone = "green"
+                else:
+                    tone = "green" if score >= 60.0 else "gray"
+            else:
+                if score is None:
+                    tone = "green"
+                else:
+                    tone = "green" if score >= _IELTS_PASS_MIN else "red"
+        elif slot == "certificate":
+            if _is_certificate_nis(ex, dr):
+                if score is None:
+                    tone = "green"
+                else:
+                    tone = "green" if score >= _ENT_PASS_MIN else "gray"
+            else:
+                if score is None:
+                    tone = "green"
+                else:
+                    tone = "green" if score >= _ENT_PASS_MIN else "red"
+        else:
+            continue
+        out[doc_id_str.strip()] = tone
+    return out
 
 
 def _build_validation_panel(db: Session, application_id: UUID) -> dict[str, Any]:
     """Build sidebar for Personal Info tab — deterministic checks only."""
-    runs = data_check_repository.list_runs_for_application(db, application_id)
     unit_map: dict[str, DataCheckUnitResult] = {}
-    if runs:
-        results = data_check_repository.list_unit_results_for_run(db, runs[0].id)
+    run = data_check_repository.resolve_preferred_run_for_application(db, application_id)
+    if run:
+        results = data_check_repository.list_unit_results_for_run(db, run.id)
         for r in results:
             unit_map[r.unit_type] = r
 
@@ -307,6 +448,7 @@ def _build_validation_panel(db: Session, application_id: UUID) -> dict[str, Any]
     edu_payload = _get_section_payloads(db, application_id).get("education") or {}
     eng_doc_id = edu_payload.get("english_document_id")
     cert_doc_id = edu_payload.get("certificate_document_id")
+    add_doc_id = edu_payload.get("additional_document_id")
 
     def _uuid_or_none(val: Any) -> UUID | None:
         if val is None:
@@ -318,6 +460,7 @@ def _build_validation_panel(db: Session, application_id: UUID) -> dict[str, Any]
 
     english_uuid = _uuid_or_none(eng_doc_id)
     certificate_uuid = _uuid_or_none(cert_doc_id)
+    additional_uuid = _uuid_or_none(add_doc_id)
     sections.append(
         _section_block(
             "Документы",
@@ -325,6 +468,7 @@ def _build_validation_panel(db: Session, application_id: UUID) -> dict[str, Any]
                 cert_unit,
                 english_document_id=english_uuid,
                 certificate_document_id=certificate_uuid,
+                additional_document_id=additional_uuid,
             ),
         )
     )
@@ -731,71 +875,24 @@ _PATH_SIGNAL_LABELS: list[tuple[str, str]] = [
 ]
 
 
-_TECHNICAL_RESIDUE_PATTERNS = [
-    re.compile(r"\bq\d+\b", re.IGNORECASE),
-    re.compile(r"data unavailable", re.IGNORECASE),
-    re.compile(r"details unavailable", re.IGNORECASE),
-    re.compile(r"submission includes responses", re.IGNORECASE),
-    re.compile(r"\bspam_questions\b", re.IGNORECASE),
-    re.compile(r"\bspam_check\b", re.IGNORECASE),
-    re.compile(r"\bheuristics\b", re.IGNORECASE),
-    re.compile(r"\baction_score\b", re.IGNORECASE),
-    re.compile(r"\breflection_score\b", re.IGNORECASE),
-    re.compile(r"\bjson\b", re.IGNORECASE),
-    re.compile(r"\bpayload\b", re.IGNORECASE),
-]
-
-
 def _strip_technical_residue(text: str) -> str:
-    cleaned = text.strip()
-    cleaned = re.sub(r"^[\-\*\d\.\)\s]+", "", cleaned)
-    for pattern in _TECHNICAL_RESIDUE_PATTERNS:
-        cleaned = pattern.sub("", cleaned)
-    cleaned = cleaned.replace("Данные недоступны", "")
-    cleaned = cleaned.replace("Детали недоступны", "")
-    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
-    return cleaned
+    return _shared_strip_technical_residue(text)
 
 
 def _split_sentences(text: str) -> list[str]:
-    if not text:
-        return []
-    parts = [s.strip() for s in re.split(r"(?<=[.!?…])\s+", text) if s.strip()]
-    return parts if parts else [text.strip()]
+    return _shared_split_sentences(text)
 
 
 def _truncate_sentence(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    cut = text[:limit].rstrip()
-    if " " in cut:
-        cut = cut[: cut.rfind(" ")].rstrip()
-    return f"{cut}..."
+    return _shared_truncate_sentence(text, limit)
 
 
 def _is_ui_friendly_sentence(text: str) -> bool:
-    if len(text) < 14:
-        return False
-    if any(p.search(text) for p in _TECHNICAL_RESIDUE_PATTERNS):
-        return False
-    cyr = len(re.findall(r"[А-Яа-яЁё]", text))
-    lat = len(re.findall(r"[A-Za-z]", text))
-    if cyr == 0:
-        return False
-    if lat > cyr:
-        return False
-    return True
+    return _shared_is_ui_friendly_sentence(text)
 
 
 def _dedupe_keep_order(items: list[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for item in items:
-        key = re.sub(r"\s+", " ", item).strip().lower()
-        if key and key not in seen:
-            seen.add(key)
-            out.append(item)
-    return out
+    return _shared_dedupe_keep_order(items)
 
 
 def _format_signal_level(name: str, value: Any) -> str | None:
@@ -1121,17 +1218,7 @@ def _build_path_attention(
 
 def _sanitize_llm_summary(text: str) -> str:
     """Normalize LLM summary to short Russian, human-facing text."""
-    cleaned = _strip_technical_residue(text)
-    candidates: list[str] = []
-    for sentence in _split_sentences(cleaned):
-        normalized = _truncate_sentence(_strip_technical_residue(sentence), 150)
-        if _is_ui_friendly_sentence(normalized):
-            candidates.append(normalized)
-    candidates = _dedupe_keep_order(candidates)
-    if not candidates:
-        return ""
-    summary = " ".join(candidates[:4]).strip()
-    return _truncate_sentence(summary, 400)
+    return _shared_sanitize_reviewer_text(text)
 
 
 def _build_path_fallback_summary(section_signals: dict[str, Any]) -> str:
@@ -1270,10 +1357,10 @@ def _build_achievements_summary_panel(db: Session, application_id: UUID) -> dict
     else:
         confirm_items.append("Ссылки не приложены")
 
-    runs_list = data_check_repository.list_runs_for_application(db, application_id)
-    if runs_list:
+    canonical_run = data_check_repository.resolve_preferred_run_for_application(db, application_id)
+    if canonical_run:
         link_results = [
-            r for r in data_check_repository.list_unit_results_for_run(db, runs_list[0].id)
+            r for r in data_check_repository.list_unit_results_for_run(db, canonical_run.id)
             if r.unit_type == DataCheckUnitType.link_validation.value
         ]
         if link_results:
@@ -1310,6 +1397,85 @@ def _build_achievements_summary_panel(db: Session, application_id: UUID) -> dict
         "title": "Достижения",
         "sections": sections,
     }
+
+
+_TAB_TO_PRIMARY_UNIT: dict[str, DataCheckUnitType] = {
+    "test": DataCheckUnitType.test_profile_processing,
+    "motivation": DataCheckUnitType.motivation_processing,
+    "path": DataCheckUnitType.growth_path_processing,
+    "achievements": DataCheckUnitType.achievements_processing,
+}
+
+
+def _unit_processing_message(ur: DataCheckUnitResult | None) -> str:
+    """Short Russian status for commission sidebar during initial_screening (no scoring copy)."""
+    if ur is None:
+        return "Данные обрабатываются"
+    st = (ur.status or "").strip()
+    if st == "completed":
+        return "Данные обработаны"
+    if st in ("pending", "running", "queued") or not st:
+        return "Данные обрабатываются"
+    if st == "manual_review_required" or ur.manual_review_required:
+        return "Требуется ручная проверка"
+    return "Не удалось обработать автоматически"
+
+
+def _build_initial_screening_processing_panel(db: Session, application_id: UUID, tab: str) -> dict[str, Any]:
+    """Sidebar for «Проверка данных»: processing status only (no LLM / commission summary)."""
+    title = "Статус обработки"
+    run = data_check_repository.resolve_preferred_run_for_application(db, application_id)
+    if not run:
+        return {
+            "type": "processing",
+            "title": title,
+            "sections": [
+                _section_block("Проверка данных", ["Ожидание запуска обработки."]),
+            ],
+        }
+
+    unit_map: dict[str, DataCheckUnitResult] = {}
+    for r in data_check_repository.list_unit_results_for_run(db, run.id):
+        unit_map[r.unit_type] = r
+
+    checks = data_check_repository.list_checks_for_run(db, run.id)
+    status_map: dict[DataCheckUnitType, str] = {}
+    for c in checks:
+        try:
+            status_map[DataCheckUnitType(c.check_type)] = c.status
+        except ValueError:
+            continue
+    overall = compute_run_status(status_map).status if status_map else "pending"
+    _overall_ru: dict[str, str] = {
+        "pending": "ожидание обработки",
+        "running": "идёт обработка",
+        "ready": "все блоки успешно обработаны",
+        "partial": "есть проблемы или требуется ручная проверка",
+        "failed": "есть ошибки обработки",
+    }
+    overall_ru = _overall_ru.get(overall, "обработка: статус уточняется")
+
+    sections: list[dict[str, Any]] = [
+        _section_block("Общий статус", [f"Статус: {overall_ru}"]),
+    ]
+
+    if tab == "personal":
+        lines = []
+        for ut in UNIT_POLICIES:
+            label = _data_check_unit_label_ru(ut.value)
+            ur = unit_map.get(ut.value)
+            lines.append(f"{label}: {_unit_processing_message(ur)}")
+        sections.append(_section_block("Разделы заявки", lines))
+    else:
+        primary = _TAB_TO_PRIMARY_UNIT.get(tab)
+        if primary:
+            label = _data_check_unit_label_ru(primary.value)
+            ur = unit_map.get(primary.value)
+            sections.append(_section_block(label, [_unit_processing_message(ur)]))
+        else:
+            sections.append(_section_block("Раздел", ["Нет данных для этой вкладки."]))
+
+    return {"type": "processing", "title": title, "sections": sections}
 
 
 _TAB_BUILDERS: dict[str, Any] = {
@@ -1393,6 +1559,14 @@ def get_sidebar_panel(db: Session, *, application_id: UUID, tab: str) -> dict[st
 
     ``tab`` is one of: personal, test, motivation, path, achievements, ai_interview.
     """
+    app = db.get(Application, application_id)
+    on_initial_screening = bool(app and app.current_stage == ApplicationStage.initial_screening.value)
+
+    # initial_screening must win over tab-specific builders (e.g. ai_interview), otherwise a client
+    # that sends tab=ai_interview would receive LLM summary while the application is still on stage 1.
+    if on_initial_screening:
+        return _build_initial_screening_processing_panel(db, application_id, tab)
+
     if tab == "ai_interview":
         return _build_ai_interview_resolution_panel(db, application_id)
 

@@ -144,10 +144,12 @@ def _map_documents(
     documents: list[Document],
     personal: dict[str, Any],
     education: dict[str, Any],
+    document_borders: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     docs_by_id = {d.id: d for d in documents}
     output: list[dict[str, Any]] = []
     used: set[UUID] = set()
+    borders = document_borders or {}
 
     def append_doc(doc_id: UUID | None, type_name: str) -> None:
         if doc_id is None or doc_id in used:
@@ -156,14 +158,16 @@ def _map_documents(
         if not doc:
             return
         used.add(doc_id)
+        tid = str(doc.id)
         output.append(
             {
-                "id": str(doc.id),
+                "id": tid,
                 "type": type_name,
                 "fileName": doc.original_filename,
                 "fileSize": _format_size(doc.byte_size),
                 "fileUrl": None,
                 "fileRef": doc.storage_key,
+                "borderTone": borders.get(tid, "gray"),
             }
         )
 
@@ -289,7 +293,7 @@ def _map_video_presentation_commission(
 ) -> dict[str, Any] | None:
     if not video_url:
         return None
-    out: dict[str, Any] = {"url": video_url}
+    out: dict[str, Any] = {"url": video_url, "borderTone": "gray"}
     if video_row is None:
         return out
     status = getattr(video_row, "media_status", None)
@@ -297,9 +301,11 @@ def _map_video_presentation_commission(
         return out
     if status not in ("ready", "partial"):
         return out
+    raw_summary = (getattr(video_row, "summary_text", None) or "").strip()
+    if raw_summary:
+        out["borderTone"] = "green"
     out["duration"] = _format_duration_label(getattr(video_row, "duration_sec", None))
-    summary = (getattr(video_row, "summary_text", None) or "").strip()
-    out["summary"] = summary if summary else "Текст не обнаружен"
+    out["summary"] = raw_summary if raw_summary else "Текст не обнаружен"
     from invision_api.services.video_processing.constants import MIN_FRAMES_FOR_VISIBILITY_UI
 
     n_frames = int(getattr(video_row, "total_frames_analyzed", 0) or 0)
@@ -325,6 +331,9 @@ def build_personal_info_view(
     processing_status: dict[str, Any] | None = None,
     video_row: VideoValidationResultRow | None = None,
     is_archived: bool = False,
+    is_read_only: bool | None = None,
+    read_only_reason: str | None = None,
+    document_borders: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     personal = sections.get("personal") if isinstance(sections.get("personal"), dict) else {}
     contact = sections.get("contact") if isinstance(sections.get("contact"), dict) else {}
@@ -354,11 +363,12 @@ def build_personal_info_view(
     candidate_instagram = _str_or_none(contact.get("instagram"))
     video_url = _str_or_none(education.get("presentation_video_url"))
 
-    read_only = bool(is_archived)
+    read_only = bool(is_archived) if is_read_only is None else bool(is_read_only)
     return {
         "applicationId": str(app.id),
-        "isArchived": read_only,
+        "isArchived": bool(is_archived),
         "readOnly": read_only,
+        "readOnlyReason": _str_or_none(read_only_reason),
         "candidateSummary": {
             "fullName": full_name or "Кандидат",
             "program": projection.program,
@@ -399,7 +409,12 @@ def build_personal_info_view(
                 "telegram": candidate_telegram,
                 "whatsapp": _str_or_none(contact.get("whatsapp")),
             },
-            "documents": _map_documents(documents=documents, personal=personal, education=education),
+            "documents": _map_documents(
+                documents=documents,
+                personal=personal,
+                education=education,
+                document_borders=document_borders,
+            ),
             "videoPresentation": _map_video_presentation_commission(video_url, video_row),
         },
         "motivation": {
@@ -416,4 +431,3 @@ def build_personal_info_view(
             "canGenerateAiInterview": False if read_only else bool(actions.get("canGenerateAiInterview")),
         },
     }
-

@@ -6,7 +6,11 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CommissionSidebar } from "@/components/commission/CommissionSidebar";
 import { InterviewBoardContainer } from "@/components/commission/InterviewBoardContainer";
 import { InterviewToolbar } from "@/components/commission/InterviewToolbar";
+import { MetricsRow } from "@/components/commission/MetricsRow";
+import { getBoardMetrics } from "@/lib/commission/query";
+import { useCommissionSidebarOpen } from "@/lib/commission/use-commission-sidebar-open";
 import type { InterviewScope } from "@/lib/commission/interviewTypes";
+import type { CommissionBoardMetrics } from "@/lib/commission/types";
 import styles from "../page.module.css";
 
 function useDebounced<T>(value: T, ms: number): T {
@@ -35,11 +39,17 @@ function CommissionInterviewPageInner() {
   const params = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const { isSidebarOpen, setIsSidebarOpen } = useCommissionSidebarOpen();
 
   const [search, setSearch] = useState(params.get("search") ?? "");
   const [program, setProgram] = useState<string | null>(params.get("program"));
   const [scope, setScope] = useState<InterviewScope>(scopeFromQuery(params.get("scope")));
+  const [metrics, setMetrics] = useState<CommissionBoardMetrics>({
+    totalApplications: 0,
+    todayApplications: 0,
+    foundationApplications: 0,
+    bachelorApplications: 0,
+  });
   const [msg, setMsg] = useState<string | null>(null);
 
   const debouncedSearch = useDebounced(search, 350);
@@ -47,6 +57,11 @@ function CommissionInterviewPageInner() {
   const filters = useMemo(
     () => ({ search: debouncedSearch, program, scope }),
     [debouncedSearch, program, scope],
+  );
+
+  const metricsFilters = useMemo(
+    () => ({ search: debouncedSearch, program, range: "week" as const }),
+    [debouncedSearch, program],
   );
 
   useEffect(() => {
@@ -68,6 +83,16 @@ function CommissionInterviewPageInner() {
     }
   }, [debouncedSearch, program, scope, params, pathname, router]);
 
+  useEffect(() => {
+    void (async () => {
+      try {
+        setMetrics(await getBoardMetrics(metricsFilters));
+      } catch (e) {
+        setMsg(e instanceof Error ? e.message : "Не удалось загрузить метрики");
+      }
+    })();
+  }, [metricsFilters]);
+
   return (
     <div className={styles.shell}>
       <CommissionSidebar isOpen={isSidebarOpen} program={program} onProgramChange={setProgram} />
@@ -85,9 +110,13 @@ function CommissionInterviewPageInner() {
 
         <InterviewToolbar search={search} scope={scope} onSearchChange={setSearch} onScopeChange={setScope} />
 
+        <MetricsRow metrics={metrics} />
+
         {msg ? <p className="error">{msg}</p> : null}
 
-        <InterviewBoardContainer filters={filters} onError={setMsg} />
+        <div className={styles.boardStripBleed}>
+          <InterviewBoardContainer filters={filters} onError={setMsg} />
+        </div>
       </main>
     </div>
   );

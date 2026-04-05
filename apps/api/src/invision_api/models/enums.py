@@ -125,6 +125,15 @@ class ScreeningResult(str, enum.Enum):
     revision_required = "revision_required"
 
 
+class InterviewPreferenceWindowStatus(str, enum.Enum):
+    """Commission interview: candidate may submit up to 3 preferred slots within a 1h window."""
+
+    awaiting_candidate_preferences = "awaiting_candidate_preferences"
+    candidate_preferences_submitted = "candidate_preferences_submitted"
+    candidate_preferences_expired = "candidate_preferences_expired"
+    interview_scheduled = "interview_scheduled"
+
+
 class JobType(str, enum.Enum):
     extract_text = "extract_text"
     run_block_analysis = "run_block_analysis"

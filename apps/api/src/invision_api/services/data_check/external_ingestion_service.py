@@ -16,32 +16,52 @@ from invision_api.models.link_validation import LinkValidationResultRow
 from invision_api.models.video_validation import VideoValidationResultRow
 from invision_api.repositories import commission_repository, data_check_repository
 from invision_api.services.data_check import orchestrator_service
+from invision_api.services.data_check.job_runner_service import _try_auto_advance
 from invision_api.services.data_check.status_service import compute_run_status
 
 
 CHECK_ALIAS_TO_UNIT = {
     "links": DataCheckUnitType.link_validation,
     "link_validation": DataCheckUnitType.link_validation,
-    "videoPresentation": DataCheckUnitType.video_validation,
+    "videopresentation": DataCheckUnitType.video_validation,
     "video_validation": DataCheckUnitType.video_validation,
     "certificates": DataCheckUnitType.certificate_validation,
     "certificate_validation": DataCheckUnitType.certificate_validation,
 }
 
 
+class ExternalIngestionValidationError(ValueError):
+    pass
+
+
+class ExternalIngestionConflictError(RuntimeError):
+    pass
+
+
+class ExternalIngestionNotFoundError(LookupError):
+    pass
+
+
 def _normalize_status(value: str) -> str:
     normalized = (value or "").strip().lower()
+    if not normalized:
+        raise ExternalIngestionValidationError("status is required")
     mapping = {
         "pending": "pending",
         "queued": "queued",
         "running": "running",
+        "processing": "running",
         "completed": "completed",
         "passed": "completed",
         "failed": "failed",
         "error": "failed",
         "manual_review_required": "manual_review_required",
+        "skipped": "manual_review_required",
+        "partially_processed": "manual_review_required",
     }
-    return mapping.get(normalized, "manual_review_required")
+    if normalized not in mapping:
+        raise ExternalIngestionValidationError(f"unsupported status: {value}")
+    return mapping[normalized]
 
 
 def _persist_typed_results(db: Session, *, application_id: UUID, unit: DataCheckUnitType, result_payload: dict[str, Any]) -> None:
@@ -161,15 +181,27 @@ def ingest_external_unit_result(
     errors: list[str] | None = None,
     explainability: list[str] | None = None,
 ) -> None:
-    unit = CHECK_ALIAS_TO_UNIT.get(check_type)
+    check_type_norm = (check_type or "").strip().lower()
+    unit = CHECK_ALIAS_TO_UNIT.get(check_type_norm)
     if not unit:
-        return
+        raise ExternalIngestionValidationError(f"unsupported check_type: {check_type}")
     run = data_check_repository.get_run(db, run_id)
     if not run:
-        return
+        raise ExternalIngestionNotFoundError(f"run not found: {run_id}")
+    if run.application_id != application_id:
+        raise ExternalIngestionConflictError(
+            f"run/application mismatch: run={run.id} run_application={run.application_id} request_application={application_id}"
+        )
+    canonical_run = data_check_repository.resolve_canonical_run_for_application(db, application_id)
+    if not canonical_run:
+        raise ExternalIngestionConflictError("canonical data-check run is missing")
+    if canonical_run.id != run.id:
+        raise ExternalIngestionConflictError(
+            f"non-canonical run rejected: requested={run.id} canonical={canonical_run.id}"
+        )
     check = data_check_repository.get_check(db, run_id, unit.value)
     if not check:
-        return
+        raise ExternalIngestionNotFoundError(f"check not found for unit: {unit.value}")
 
     unit_status = _normalize_status(status)
     now = datetime.now(tz=UTC)
@@ -230,4 +262,5 @@ def ingest_external_unit_result(
     app = data_check_repository.get_application(db, application_id)
     if app:
         commission_repository.upsert_projection_for_application(db, app)
+    _try_auto_advance(db, run_computed=computed, app=app, application_id=application_id)
     orchestrator_service.enqueue_ready_followup_jobs(db, application_id=application_id, run_id=run_id)

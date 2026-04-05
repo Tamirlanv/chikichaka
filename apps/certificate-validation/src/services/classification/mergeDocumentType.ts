@@ -16,6 +16,22 @@ export function mapDeclarationToDocumentType(input: {
     if (input.certificateProofKind === "nis_12") return "nis_12";
     return null;
   }
+  /** "Дополнительный" файл: если в анкете выбран только один тип документа — используем его как ожидаемый тип для извлечения. */
+  if (input.documentRole === "additional") {
+    const en = input.englishProofKind;
+    const ce = input.certificateProofKind;
+    const hasEn = en === "ielts_6" || en === "toefl_60_78";
+    const hasCe = ce === "ent" || ce === "nis_12";
+    if (hasEn && !hasCe) {
+      if (en === "ielts_6") return "ielts";
+      if (en === "toefl_60_78") return "toefl";
+    }
+    if (hasCe && !hasEn) {
+      if (ce === "ent") return "ent";
+      if (ce === "nis_12") return "nis_12";
+    }
+    return null;
+  }
   return null;
 }
 

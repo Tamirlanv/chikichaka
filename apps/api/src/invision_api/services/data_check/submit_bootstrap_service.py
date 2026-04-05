@@ -61,12 +61,13 @@ def bootstrap_data_check_pipeline(
     queue_report: job_dispatcher_service.QueueDispatchReport | None = None,
     strict: bool = False,
 ) -> UUID:
-    runs = data_check_repository.list_runs_for_application(db, application_id)
-    if runs and runs[0].overall_status in {
-        DataCheckRunStatus.pending.value,
-        DataCheckRunStatus.running.value,
-    }:
-        return runs[0].id
+    active_canonical = data_check_repository.resolve_canonical_run_for_application(
+        db,
+        application_id,
+        active_only=True,
+    )
+    if active_canonical is not None:
+        return active_canonical.id
 
     app = data_check_repository.get_application(db, application_id)
     submitted_at = app.submitted_at if app else datetime.now(tz=UTC)

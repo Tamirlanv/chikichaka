@@ -1,0 +1,40 @@
+# Certificate validation microservice (Fastify + Tesseract OCR + sharp + ffmpeg).
+# Build context: repository root.
+#   docker build -f infra/docker/Dockerfile.certificate-validation -t invision-certificate-validation .
+
+FROM node:22-bookworm-slim
+
+# Install devDependencies for `tsc` during build; set NODE_ENV=production after prune.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    curl \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-rus \
+    tesseract-ocr-kaz \
+    ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Lockfile is pnpm-style; resolve deps inside the image (same approach as Dockerfile.legal).
+COPY apps/certificate-validation/package.json ./
+RUN npm install
+
+COPY apps/certificate-validation/ ./
+# Monorepo lockfile references pnpm paths; drop it so `npm` resolves cleanly in-container.
+RUN rm -f package-lock.json
+# Reinstall production deps only after build (drop devDependencies including `typescript`).
+RUN npm run build \
+  && rm -rf node_modules \
+  && npm install --omit=dev
+
+ENV NODE_ENV=production
+
+RUN useradd -m -u 10001 appuser \
+  && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 4400
+
+CMD ["node", "dist/server.js"]

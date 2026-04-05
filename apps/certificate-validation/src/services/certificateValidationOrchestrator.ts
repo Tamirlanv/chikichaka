@@ -6,6 +6,8 @@ import { extractFields } from "./extraction/fieldExtractor.js";
 import { validatePlausibleScore } from "./extraction/plausibleScore.js";
 import { preprocessImage } from "./image/preprocessImage.js";
 import { TesseractOcrProvider } from "./ocr/tesseractOcrProvider.js";
+import { enrichOcrText } from "./ocr/ocrEnrichment.js";
+import { env } from "../config/env.js";
 import { evaluateAuthenticity } from "./rules/authenticityHeuristics.js";
 import { computePassedThreshold, evaluateThresholds } from "./rules/thresholdEvaluator.js";
 import { buildOptionalSummary } from "./summary/llmSummaryService.js";
@@ -28,6 +30,8 @@ export type ValidateCertificateInput = {
   documentRole?: "english" | "certificate" | "additional";
   /** When true, do not INSERT into certificate_validation_results (caller persists, e.g. API). */
   skipPersistence?: boolean;
+  /** Overrides default `OCR_LANG` for Tesseract (`-l`), e.g. `rus+kaz+eng` for Cyrillic scans. */
+  ocrLang?: string | null;
 };
 
 function emptyFailure(
@@ -65,6 +69,8 @@ export async function validateCertificateImage(
   try {
     let ocr: { text: string; confidence: number | null };
 
+    let preprocessedPath: string | undefined;
+
     if (input.plainText?.trim()) {
       ocr = { text: input.plainText.trim(), confidence: 1.0 };
     } else {
@@ -78,8 +84,9 @@ export async function validateCertificateImage(
         return emptyFailure(["Provide plainText, imagePath, or imageBase64"]);
       }
 
-      const preprocessed = await preprocessImage(path);
-      ocr = await new TesseractOcrProvider().extractText(preprocessed);
+      preprocessedPath = await preprocessImage(path);
+      const ocrOpts = input.ocrLang?.trim() ? { ocrLang: input.ocrLang.trim() } : undefined;
+      ocr = await new TesseractOcrProvider().extractText(preprocessedPath, ocrOpts);
     }
 
     if (!ocr.text?.trim()) {
@@ -124,12 +131,34 @@ export async function validateCertificateImage(
       warnings.push("Declaration vs OCR mismatch: threshold not applied automatically.");
     }
 
-    const template = matchTemplate(ocr.text, documentType);
-    const extracted = extractFields(ocr.text, documentType);
+    let template = matchTemplate(ocr.text, documentType);
+    let extracted = extractFields(ocr.text, documentType);
+
+    if (
+      extracted.totalScore == null &&
+      preprocessedPath &&
+      (documentType === "ielts" || documentType === "ent")
+    ) {
+      const lang = input.ocrLang?.trim() || env.OCR_LANG;
+      try {
+        const extra = await enrichOcrText(preprocessedPath, documentType, lang);
+        if (extra.trim()) {
+          warnings.push("Supplementary OCR (multi-pass / ROI) appended for score extraction.");
+          ocr = { text: `${ocr.text}\n\n${extra}`, confidence: ocr.confidence };
+          template = matchTemplate(ocr.text, documentType);
+          extracted = extractFields(ocr.text, documentType);
+        }
+      } catch {
+        warnings.push("Supplementary OCR enrichment failed; using primary OCR text only.");
+      }
+    }
 
     let finalScore: number | null = extracted.totalScore ?? null;
     let scorePlausible: boolean | null = null;
     let scoreRejectionReason: string | null = null;
+    const targetFieldFound = extracted.targetFieldFound === true;
+    const targetFieldType = extracted.targetFieldType ?? null;
+    const targetFieldEvidence = extracted.targetFieldEvidence ?? null;
     if (finalScore != null && documentType !== "unknown") {
       const plaus = validatePlausibleScore(documentType, finalScore);
       if (!plaus.ok) {
@@ -140,6 +169,9 @@ export async function validateCertificateImage(
       } else {
         scorePlausible = true;
       }
+    }
+    if (documentType !== "unknown" && !targetFieldFound) {
+      warnings.push("Target score field was not detected; manual review required.");
     }
 
     const thresholds = evaluateThresholds(documentType, finalScore, {
@@ -182,6 +214,7 @@ export async function validateCertificateImage(
       `OCR classified as ${ocrDocumentType}, resolved type: ${documentType}`,
       `Template score: ${template.score}`,
       `Extraction method: ${extracted.extractionMethod ?? "n/a"}`,
+      `Target field: ${targetFieldType ?? "n/a"} (${targetFieldFound ? "found" : "missing"})`,
       `Detected score (after plausibility): ${finalScore ?? "none"}`,
       plausLine
     ];
@@ -213,6 +246,9 @@ export async function validateCertificateImage(
         ocrDocumentType,
         declarationMismatch: merged.mismatch,
         extractionMethod: extracted.extractionMethod ?? null,
+        targetFieldFound,
+        targetFieldType,
+        targetFieldEvidence,
         scorePlausible,
         scoreRejectionReason
       },

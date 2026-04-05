@@ -7,11 +7,12 @@ from sqlalchemy.orm import Session
 
 from invision_api.commission.application import service as commission_service
 from invision_api.commission.application.personal_info_mapper import build_personal_info_view
+from invision_api.commission.application.sidebar_service import compute_commission_document_borders
 from invision_api.commission.application.personal_info_validators import (
     load_submitted_application_or_404,
     resolve_commission_actions,
 )
-from invision_api.models.enums import DataCheckUnitType
+from invision_api.models.enums import DataCheckRunStatus, DataCheckUnitStatus, DataCheckUnitType
 from invision_api.models.user import User
 from invision_api.core.config import get_settings
 from invision_api.repositories import (
@@ -22,18 +23,43 @@ from invision_api.repositories import (
     internal_test_repository,
     video_validation_repository,
 )
+from invision_api.models.data_check_unit_result import DataCheckUnitResult
 from invision_api.services.ai_interview.data_readiness import is_data_processing_ready
 from invision_api.services.ai_interview.service import display_question_text
 from invision_api.services.application_service import collect_referenced_document_ids
-from invision_api.services.data_check.status_service import TERMINAL_UNIT_STATUSES, compute_run_status
+from invision_api.services.data_check.status_service import (
+    TERMINAL_UNIT_STATUSES,
+    UNIT_POLICIES,
+    build_commission_human_issues,
+    compute_run_status,
+)
 from invision_api.services.personality_profile_service import build_personality_profile_snapshot
 
 
-def _build_processing_status(db: Session, application_id: UUID) -> dict[str, Any] | None:
-    runs = data_check_repository.list_runs_for_application(db, application_id)
-    if not runs:
+def _to_uuid(value: Any) -> UUID | None:
+    if value is None:
         return None
-    run = runs[0]
+    try:
+        return UUID(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _certificate_validation_unit(db: Session, application_id: UUID) -> DataCheckUnitResult | None:
+    run = data_check_repository.resolve_preferred_run_for_application(db, application_id)
+    if not run:
+        return None
+    results = data_check_repository.list_unit_results_for_run(db, run.id)
+    for r in results:
+        if r.unit_type == DataCheckUnitType.certificate_validation.value:
+            return r
+    return None
+
+
+def _build_processing_status(db: Session, application_id: UUID) -> dict[str, Any] | None:
+    run = data_check_repository.resolve_preferred_run_for_application(db, application_id)
+    if not run:
+        return None
     checks = data_check_repository.list_checks_for_run(db, run.id)
     if not checks:
         return None
@@ -45,17 +71,25 @@ def _build_processing_status(db: Session, application_id: UUID) -> dict[str, Any
         except ValueError:
             continue
 
-    run_computed = compute_run_status(status_map)
-    completed = sum(1 for s in status_map.values() if s in TERMINAL_UNIT_STATUSES)
+    canonical: dict[DataCheckUnitType, str] = {}
+    for unit in UNIT_POLICIES:
+        canonical[unit] = status_map.get(unit, DataCheckUnitStatus.pending.value)
+
+    run_computed = compute_run_status(canonical)
+    completed = sum(1 for s in canonical.values() if s in TERMINAL_UNIT_STATUSES)
+    warnings: list[str] = []
+    errors: list[str] = []
+    if run_computed.status in {DataCheckRunStatus.partial.value, DataCheckRunStatus.failed.value}:
+        warnings, errors = build_commission_human_issues(canonical)
 
     return {
         "overall": run_computed.status,
         "completedCount": completed,
-        "totalCount": len(status_map),
-        "units": {unit.value: st for unit, st in status_map.items()},
+        "totalCount": len(UNIT_POLICIES),
+        "units": {unit.value: st for unit, st in canonical.items()},
         "manualReviewRequired": run_computed.manual_review_required,
-        "warnings": run_computed.warnings,
-        "errors": run_computed.errors,
+        "warnings": warnings,
+        "errors": errors,
     }
 
 
@@ -81,6 +115,15 @@ def get_commission_application_personal_info(db: Session, *, application_id: UUI
 
     video_row = video_validation_repository.get_latest_for_application(db, application_id)
 
+    education = sections.get("education") if isinstance(sections.get("education"), dict) else {}
+    cert_unit = _certificate_validation_unit(db, application_id)
+    document_borders = compute_commission_document_borders(
+        cert_unit,
+        english_document_id=_to_uuid(education.get("english_document_id")),
+        certificate_document_id=_to_uuid(education.get("certificate_document_id")),
+        additional_document_id=_to_uuid(education.get("additional_document_id")),
+    )
+
     comments = commission_repository.list_comments_with_author(db, application_id=application_id, limit=50)
 
     qs = ai_interview_repository.get_question_set_for_application(db, application_id)
@@ -88,10 +131,28 @@ def get_commission_application_personal_info(db: Session, *, application_id: UUI
     if qs and qs.questions:
         n_valid = sum(1 for q in qs.questions if display_question_text(q))
     on_review = app.current_stage == "application_review"
-    can_advance_stage = app.current_stage in ("interview", "committee_review")
+    can_move_from_orange_stage_one = bool(
+        app.current_stage == "initial_screening"
+        and processing_status
+        and processing_status.get("overall") in {DataCheckRunStatus.partial.value, DataCheckRunStatus.failed.value}
+    )
+    can_advance_stage = can_move_from_orange_stage_one or app.current_stage in (
+        "application_review",
+        "interview",
+        "committee_review",
+    )
     settings = get_settings()
     data_ok_for_generate = not settings.ai_interview_require_data_ready or is_data_processing_ready(db, application_id)
+    has_final_decision = bool(projection.final_decision)
+    is_read_only = bool(app.is_archived or has_final_decision)
     if app.is_archived:
+        read_only_reason = "Заявка в архиве: доступен только просмотр."
+    elif has_final_decision:
+        read_only_reason = "По заявке уже принято финальное решение: доступен только просмотр."
+    else:
+        read_only_reason = None
+
+    if is_read_only:
         actions = {
             "canComment": False,
             "canMoveForward": False,
@@ -120,6 +181,9 @@ def get_commission_application_personal_info(db: Session, *, application_id: UUI
         processing_status=processing_status,
         video_row=video_row,
         is_archived=app.is_archived,
+        is_read_only=is_read_only,
+        read_only_reason=read_only_reason,
+        document_borders=document_borders,
     )
 
 
@@ -218,4 +282,3 @@ def move_application_to_next_stage(
         actor_user_id=actor_user_id,
         reason_comment=reason_comment,
     )
-
