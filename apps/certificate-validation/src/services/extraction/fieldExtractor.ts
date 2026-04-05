@@ -11,6 +11,7 @@ export function extractFields(
   totalScore?: number | null;
   scoreLabel?: string | null;
   extractionMethod?: string | null;
+  extractionConfidenceTier?: "high" | "medium" | "low" | null;
   targetFieldFound?: boolean;
   targetFieldType?: string | null;
   targetFieldEvidence?: string | null;
@@ -23,6 +24,7 @@ export function extractFields(
   let totalScore: number | null = detail.score;
   let scoreLabel: string | null = null;
   const extractionMethod = detail.method;
+  const extractionConfidenceTier = detail.extractionConfidenceTier;
   const targetFieldFound = detail.targetFieldFound;
   const targetFieldType = detail.targetFieldType;
   const targetFieldEvidence = detail.targetFieldEvidence;
@@ -44,6 +46,7 @@ export function extractFields(
     totalScore,
     scoreLabel,
     extractionMethod,
+    extractionConfidenceTier,
     targetFieldFound,
     targetFieldType,
     targetFieldEvidence,

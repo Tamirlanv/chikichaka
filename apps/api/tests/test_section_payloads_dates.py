@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from invision_api.services.section_payloads import (
     AchievementsActivitiesSectionPayload,
+    ContactSectionPayload,
     EducationItemPayload,
     EducationSectionPayload,
     PersonalSectionPayload,
@@ -78,5 +79,17 @@ def test_invalid_date_rejected() -> None:
                 "preferred_first_name": "A",
                 "preferred_last_name": "B",
                 "date_of_birth": "not-a-date",
+            }
+        )
+
+
+def test_contact_payload_rejects_too_short_phone() -> None:
+    with pytest.raises(ValidationError):
+        ContactSectionPayload.model_validate(
+            {
+                "phone_e164": "+7700",
+                "address_line1": "ул. Абая 1",
+                "city": "Алматы",
+                "country": "KZ",
             }
         )

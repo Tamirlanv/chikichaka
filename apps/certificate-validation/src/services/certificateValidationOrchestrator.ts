@@ -6,7 +6,7 @@ import { extractFields } from "./extraction/fieldExtractor.js";
 import { validatePlausibleScore } from "./extraction/plausibleScore.js";
 import { preprocessImage } from "./image/preprocessImage.js";
 import { TesseractOcrProvider } from "./ocr/tesseractOcrProvider.js";
-import { enrichOcrText } from "./ocr/ocrEnrichment.js";
+import { enrichOcrTextDetailed } from "./ocr/ocrEnrichment.js";
 import { env } from "../config/env.js";
 import { evaluateAuthenticity } from "./rules/authenticityHeuristics.js";
 import { computePassedThreshold, evaluateThresholds } from "./rules/thresholdEvaluator.js";
@@ -141,12 +141,15 @@ export async function validateCertificateImage(
     ) {
       const lang = input.ocrLang?.trim() || env.OCR_LANG;
       try {
-        const extra = await enrichOcrText(preprocessedPath, documentType, lang);
-        if (extra.trim()) {
+        const enriched = await enrichOcrTextDetailed(preprocessedPath, documentType, lang);
+        warnings.push(...enriched.warnings);
+        if (enriched.text.trim()) {
           warnings.push("Supplementary OCR (multi-pass / ROI) appended for score extraction.");
-          ocr = { text: `${ocr.text}\n\n${extra}`, confidence: ocr.confidence };
+          ocr = { text: `${ocr.text}\n\n${enriched.text}`, confidence: ocr.confidence };
           template = matchTemplate(ocr.text, documentType);
           extracted = extractFields(ocr.text, documentType);
+        } else {
+          warnings.push("Supplementary OCR produced no additional text.");
         }
       } catch {
         warnings.push("Supplementary OCR enrichment failed; using primary OCR text only.");
@@ -159,6 +162,7 @@ export async function validateCertificateImage(
     const targetFieldFound = extracted.targetFieldFound === true;
     const targetFieldType = extracted.targetFieldType ?? null;
     const targetFieldEvidence = extracted.targetFieldEvidence ?? null;
+    const extractionConfidenceTier = extracted.extractionConfidenceTier ?? null;
     if (finalScore != null && documentType !== "unknown") {
       const plaus = validatePlausibleScore(documentType, finalScore);
       if (!plaus.ok) {
@@ -172,6 +176,9 @@ export async function validateCertificateImage(
     }
     if (documentType !== "unknown" && !targetFieldFound) {
       warnings.push("Target score field was not detected; manual review required.");
+    }
+    if (documentType !== "unknown" && extractionConfidenceTier === "low") {
+      warnings.push("Low extraction confidence; target score needs manual review.");
     }
 
     const thresholds = evaluateThresholds(documentType, finalScore, {
@@ -246,6 +253,7 @@ export async function validateCertificateImage(
         ocrDocumentType,
         declarationMismatch: merged.mismatch,
         extractionMethod: extracted.extractionMethod ?? null,
+        extractionConfidenceTier,
         targetFieldFound,
         targetFieldType,
         targetFieldEvidence,

@@ -3,6 +3,9 @@ import { GROWTH_CHAR_LIMITS, GROWTH_QUESTION_IDS } from "./growth-path/constants
 import { normalizeGrowthText } from "./growth-path/text";
 import { MAX_MOTIVATION_LETTER_LENGTH, MIN_MOTIVATION_LETTER_LENGTH } from "./motivation-letter";
 
+const MIN_PHONE_DIGITS = 11;
+const countDigits = (value: string | undefined | null): number => String(value ?? "").replace(/\D/g, "").length;
+
 export const registerSchema = z
   .object({
     email: z.string().email({ message: "Укажите корректный email" }),
@@ -100,6 +103,21 @@ export const contactSchema = z
     consent_parent: z.boolean().refine((v) => v === true, { message: "Необходимо подтверждение" }),
   })
   .superRefine((data, ctx) => {
+    if (countDigits(data.phone_e164) < MIN_PHONE_DIGITS) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Укажите корректный номер телефона",
+        path: ["phone_e164"],
+      });
+    }
+    if (data.whatsapp && data.whatsapp.trim() && countDigits(data.whatsapp) < MIN_PHONE_DIGITS) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Укажите корректный номер WhatsApp",
+        path: ["whatsapp"],
+      });
+    }
+
     const filled = [data.phone_e164, data.instagram, data.telegram, data.whatsapp].filter(
       (v) => v && v.trim().length > 1 && v.trim() !== "+" && v.trim() !== "@" && v.trim() !== "+7",
     );

@@ -8,6 +8,7 @@ from uuid import uuid4
 from invision_api.models.application import Document
 from invision_api.services.data_check.processors.certificate_validation_processor import (
     _build_validation_payload,
+    _row_from_error,
     _row_from_response,
 )
 
@@ -43,6 +44,7 @@ def test_row_from_response_maps_exam_document() -> None:
             "targetFieldFound": True,
             "targetFieldType": "ielts_overall_band",
             "targetFieldEvidence": "overall band score 6.5",
+            "extractionConfidenceTier": "high",
         },
         "scoreLabel": "overall band score",
         "passedThreshold": True,
@@ -65,3 +67,22 @@ def test_row_from_response_maps_exam_document() -> None:
     assert row.extracted_fields["examDocument"]["passedThreshold"] is True
     assert row.extracted_fields["examDocument"]["targetFieldFound"] is True
     assert row.extracted_fields["examDocument"]["targetFieldType"] == "ielts_overall_band"
+    assert row.extracted_fields["examDocument"]["extractionConfidenceTier"] == "high"
+
+
+def test_row_from_error_maps_error_code_and_exam_document() -> None:
+    app_id = uuid4()
+    doc_id = uuid4()
+    row = _row_from_error(
+        app_id,
+        doc_id,
+        "Storage read failed: missing file",
+        error_code="storage_read_failed",
+        document_role="certificate",
+    )
+    exam = row.extracted_fields["examDocument"]
+    assert exam["documentId"] == str(doc_id)
+    assert exam["documentRole"] == "certificate"
+    assert exam["detectedScore"] is None
+    assert exam["errorCode"] == "storage_read_failed"
+    assert "certificate_storage_read_failed" in row.fraud_signals

@@ -15,10 +15,16 @@ from invision_api.services.video_processing.constants import MEDIA_STATUS_FAILED
 logger = logging.getLogger(__name__)
 
 
-def _detect_video_error_code(errors: list[str]) -> str | None:
+def _detect_video_error_code(errors: list[str], warnings: list[str] | None = None) -> str | None:
     blob = " ".join((e or "") for e in errors).lower()
+    if warnings:
+        blob = f"{blob} {' '.join((w or '') for w in warnings).lower()}"
     if not blob:
         return None
+    if "транскрибация недоступна" in blob or "asr" in blob:
+        return "asr_unavailable"
+    if "суммаризация недоступна" in blob:
+        return "summary_unavailable"
     if "yt-dlp" in blob or "yt_dlp" in blob:
         return "missing_ytdlp"
     if "ffprobe" in blob and "не найден бинарник" in blob:
@@ -91,7 +97,7 @@ def run_video_validation_processing(db: Session, *, application_id: UUID, candid
         unit_status = "failed"
 
     analyzed = outcome.frames_extracted_success
-    error_code = _detect_video_error_code(list(outcome.errors))
+    error_code = _detect_video_error_code(list(outcome.errors), list(outcome.warnings))
     row = VideoValidationResultRow(
         application_id=application_id,
         video_url=video_url,

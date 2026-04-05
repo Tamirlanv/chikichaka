@@ -123,6 +123,26 @@ def _has_contact_channel(c: section_payloads.ContactSectionPayload) -> bool:
     return len(valid) >= 2
 
 
+_MIN_PHONE_DIGITS = 11
+
+
+def _phone_has_min_digits(phone: str | None, *, min_digits: int = _MIN_PHONE_DIGITS) -> bool:
+    digits = "".join(ch for ch in str(phone or "") if ch.isdigit())
+    return len(digits) >= min_digits
+
+
+def _has_complete_parent_or_guardian(p: section_payloads.PersonalSectionPayload) -> bool:
+    candidates = [
+        ((p.father_last or "").strip(), (p.father_first or "").strip(), p.father_phone),
+        ((p.mother_last or "").strip(), (p.mother_first or "").strip(), p.mother_phone),
+        ((p.guardian_last or "").strip(), (p.guardian_first or "").strip(), p.guardian_phone),
+    ]
+    for last_name, first_name, phone in candidates:
+        if last_name and first_name and (phone or "").strip() and _phone_has_min_digits(phone):
+            return True
+    return False
+
+
 def compute_section_complete(
     db: Session,
     app: Application,
@@ -143,12 +163,7 @@ def compute_section_complete(
                 and (p.document_number or "").strip()
                 and p.document_issue_date is not None
                 and (p.document_issued_by or "").strip()
-                and (p.father_last or "").strip()
-                and (p.father_first or "").strip()
-                and (p.father_phone or "").strip()
-                and (p.mother_last or "").strip()
-                and (p.mother_first or "").strip()
-                and (p.mother_phone or "").strip()
+                and _has_complete_parent_or_guardian(p)
                 and p.consent_privacy
                 and p.consent_age
                 and p.identity_document_id is not None
@@ -158,6 +173,7 @@ def compute_section_complete(
             return bool(
                 c
                 and (c.phone_e164 or "").strip()
+                and _phone_has_min_digits(c.phone_e164)
                 and (c.region or "").strip()
                 and (c.city or "").strip()
                 and (c.street or "").strip()

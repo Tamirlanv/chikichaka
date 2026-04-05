@@ -26,6 +26,7 @@ describe("validateCertificateImage", () => {
     expect(out.thresholdChecks.ieltsMinPassed).toBe(true);
     expect(out.extractedFields.targetFieldFound).toBe(true);
     expect(out.extractedFields.targetFieldType).toBe("ielts_overall_band");
+    expect(out.extractedFields.extractionConfidenceTier).toBe("high");
   });
 
   it("infers ielts from declaration for additional document when only english proof is declared", async () => {

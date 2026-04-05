@@ -150,11 +150,20 @@ function toParams(filters: CommissionBoardFilters): URLSearchParams {
 function defaultMetrics(cards: CommissionBoardApplicationCard[]): CommissionBoardMetrics {
   const today = new Date();
   const todayIso = `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, "0")}-${String(today.getUTCDate()).padStart(2, "0")}`;
+
+  const programBucket = (programValue: string | null | undefined): "foundation" | "bachelor" | "other" => {
+    const raw = (programValue ?? "").trim().toLowerCase();
+    if (!raw) return "other";
+    if (raw.includes("foundation")) return "foundation";
+    if (raw.includes("бак") || raw.includes("bachelor")) return "bachelor";
+    return "other";
+  };
+
   return {
     totalApplications: cards.length,
     todayApplications: cards.filter((c) => (c.submittedAt ?? "").startsWith(todayIso)).length,
-    foundationApplications: cards.filter((c) => c.program.trim() === "Foundation").length,
-    bachelorApplications: cards.filter((c) => c.program.trim() === "Бакалавриат").length,
+    foundationApplications: cards.filter((c) => programBucket(c.program) === "foundation").length,
+    bachelorApplications: cards.filter((c) => programBucket(c.program) === "bachelor").length,
   };
 }
 
@@ -601,18 +610,23 @@ export async function openCommissionApplicationDocumentInNewTab(
   applicationId: string,
   documentId: string,
 ): Promise<void> {
-  const blob = await apiFetchBlob(
-    `/commission/applications/${applicationId}/documents/${documentId}/file`,
-  );
-  if (blob.size === 0) {
-    throw new Error("Пустой файл — нечего открыть.");
-  }
-  const objectUrl = URL.createObjectURL(blob);
-  // Без noopener: иначе часть браузеров даёт ERR_FILE_NOT_FOUND по blob: во вкладке с изоляцией.
-  const w = window.open(objectUrl, "_blank");
-  if (!w) {
-    URL.revokeObjectURL(objectUrl);
+  const preOpenedWindow = window.open("", "_blank");
+  if (!preOpenedWindow) {
     throw new Error("Не удалось открыть новую вкладку. Разрешите всплывающие окна.");
+  }
+  try {
+    const blob = await apiFetchBlob(
+      `/commission/applications/${applicationId}/documents/${documentId}/file`,
+    );
+    if (blob.size === 0) {
+      preOpenedWindow.close();
+      throw new Error("Пустой файл — нечего открыть.");
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    preOpenedWindow.location.href = objectUrl;
+  } catch (error) {
+    preOpenedWindow.close();
+    throw error;
   }
   // Не вызываем revokeObjectURL после открытия: встроенный PDF во второй вкладке может
   // обращаться к blob: URL ещё долго; любой отзыв до закрытия вкладки даёт Chrome ERR_FILE_NOT_FOUND (-6).

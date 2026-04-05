@@ -54,6 +54,53 @@ def test_save_personal_section_updates_profile(db: Session, factory):
     assert profile.last_name == "Имя"
 
 
+def test_personal_section_complete_with_single_guardian_block(db: Session, factory):
+    """Personal section is complete when at least one parent/guardian block is fully filled."""
+    user = factory.user(db)
+    role = factory.candidate_role(db)
+    factory.assign_role(db, user, role)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile)
+    identity_doc = Document(
+        id=uuid4(),
+        application_id=app.id,
+        original_filename="id.pdf",
+        mime_type="application/pdf",
+        byte_size=1024,
+        storage_key="uploads/id-guardian.pdf",
+        document_type=DocumentType.supporting_documents.value,
+    )
+    db.add(identity_doc)
+    db.commit()
+
+    row = save_section(db, user, SectionKey.personal, {
+        "preferred_first_name": "Камила",
+        "preferred_last_name": "Аргын",
+        "date_of_birth": "2007-01-01",
+        "document_type": "id",
+        "citizenship": "KZ",
+        "iin": "070101500001",
+        "document_number": "123456789",
+        "document_issue_date": "2024-01-01",
+        "document_issued_by": "МВД РК",
+        # Father and mother are intentionally partial/empty: should not block completion.
+        "father_last": "Аргынов",
+        "father_first": "",
+        "father_phone": "",
+        "mother_last": "",
+        "mother_first": "",
+        "mother_phone": "",
+        # Guardian is the only complete representative block.
+        "guardian_last": "Сейтова",
+        "guardian_first": "Алия",
+        "guardian_phone": "+77011234567",
+        "consent_privacy": True,
+        "consent_age": True,
+        "identity_document_id": str(identity_doc.id),
+    })
+    assert row.is_complete is True
+
+
 def test_save_section_moves_draft_to_in_progress(db: Session, factory):
     """Saving a section when app is draft moves state to in_progress."""
     user = factory.user(db)

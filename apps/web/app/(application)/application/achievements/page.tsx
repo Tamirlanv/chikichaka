@@ -146,6 +146,9 @@ export default function AchievementsPage() {
       });
       bustApiCache("/candidates/me");
       clearDraft("achievements");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("application:open-submit-confirmation"));
+      }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Не удалось сохранить");
     }
@@ -338,7 +341,7 @@ export default function AchievementsPage() {
           Сохранить черновик
         </button>
         <button type="submit" className="btn" disabled={isSubmitting}>
-          {isSubmitting ? "Сохранение…" : "Продолжить"}
+          {isSubmitting ? "Сохранение…" : "Отправить заявку"}
         </button>
       </div>
     </form>

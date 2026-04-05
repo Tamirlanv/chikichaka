@@ -13,6 +13,7 @@ describe("detailedScoreExtraction", () => {
     expect(d.method).toBe("ielts:overall_band_score_line");
     expect(d.targetFieldFound).toBe(true);
     expect(d.targetFieldType).toBe("ielts_overall_band");
+    expect(d.extractionConfidenceTier).toBe("high");
   });
 
   it("does not derive IELTS score from section-only values", () => {
@@ -41,5 +42,6 @@ describe("detailedScoreExtraction", () => {
     expect(d.targetFieldFound).toBe(true);
     expect(d.targetFieldType).toBe("ent_total_score");
     expect(d.method).toContain("ent:");
+    expect(["high", "medium", "low"]).toContain(d.extractionConfidenceTier);
   });
 });

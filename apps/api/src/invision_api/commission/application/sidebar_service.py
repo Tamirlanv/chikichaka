@@ -525,7 +525,12 @@ def _build_test_summary_panel(db: Session, application_id: UUID) -> dict[str, An
         profile_items.append(profile_title)
     profile_summary = profile.get("summary")
     if profile_summary:
-        profile_items.append(str(profile_summary)[:300])
+        profile_items.append(
+            _build_compact_summary(
+                str(profile_summary),
+                fallback="Краткий профиль пока недоступен.",
+            )
+        )
     if not profile_items:
         profile_items.append("Профиль ещё не определён")
     sections.append(_section_block("Профиль", profile_items))
@@ -605,6 +610,41 @@ def _first_sentence(text: str) -> str:
     if len(first) > 180:
         first = first[:177].rstrip() + "..."
     return first
+
+
+def _build_compact_summary(
+    raw_text: str,
+    *,
+    fallback: str,
+    max_sentences: int = 3,
+    max_sentence_len: int = 220,
+) -> str:
+    """Build short human-readable summary (1-3 sentences) instead of raw string slicing."""
+    source = _shared_strip_technical_residue(str(raw_text or ""))
+    source = re.sub(r"\s+", " ", source).strip()
+    if not source:
+        return fallback
+
+    summary_parts: list[str] = []
+    for sentence in _shared_split_sentences(source):
+        cleaned = _shared_strip_technical_residue(sentence)
+        cleaned = _shared_sanitize_reviewer_text(cleaned)
+        if not cleaned or not _shared_is_ui_friendly_sentence(cleaned):
+            continue
+        trimmed = _shared_truncate_sentence(cleaned, max_sentence_len)
+        if trimmed:
+            summary_parts.append(trimmed)
+        if len(summary_parts) >= max_sentences:
+            break
+
+    if not summary_parts:
+        cleaned = _shared_sanitize_reviewer_text(source)
+        cleaned = _shared_strip_technical_residue(cleaned)
+        if cleaned:
+            summary_parts.append(_shared_truncate_sentence(cleaned, max_sentence_len))
+
+    summary_parts = _shared_dedupe_keep_order([x for x in summary_parts if x])
+    return " ".join(summary_parts) if summary_parts else fallback
 
 
 def _detect_main_motivation_thesis(summary_text: str, narrative: str) -> str:
@@ -802,9 +842,14 @@ def _build_motivation_summary_panel(db: Session, application_id: UUID) -> dict[s
     # Block 1: Brief summary
     summary_items: list[str] = []
     if summary_text:
-        summary_items.append(str(summary_text)[:400])
+        summary_items.append(
+            _build_compact_summary(
+                str(summary_text),
+                fallback="Сводка мотивации ещё не готова",
+            )
+        )
     elif narrative:
-        summary_items.append(_first_sentence(narrative))
+        summary_items.append(_detect_main_motivation_thesis("", narrative))
     else:
         summary_items.append("Сводка мотивации ещё не готова")
     sections.append(_section_block("Краткий вывод", summary_items))
@@ -1323,7 +1368,12 @@ def _build_achievements_summary_panel(db: Session, application_id: UUID) -> dict
     # Block 1: Brief summary
     summary_items: list[str] = []
     if summary_text:
-        summary_items.append(str(summary_text)[:400])
+        summary_items.append(
+            _build_compact_summary(
+                str(summary_text),
+                fallback="Сводка достижений ещё не готова",
+            )
+        )
     else:
         summary_items.append("Сводка достижений ещё не готова")
     sections.append(_section_block("Краткий вывод", summary_items))

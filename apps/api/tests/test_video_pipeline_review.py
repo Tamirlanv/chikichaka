@@ -11,6 +11,8 @@ from invision_api.services.link_validation.types import VideoLinkValidationResul
 from invision_api.services.video_processing import ffmpeg_tools
 from invision_api.services.video_processing.ffmpeg_tools import FFmpegError, MediaMetadata
 from invision_api.services.video_processing.pipeline import run_presentation_pipeline
+from invision_api.services.video_processing.summary_openai import SummaryProviderError
+from invision_api.services.video_processing.transcription_openai import ASRProviderError
 
 
 def test_invalid_url_is_failed_status() -> None:
@@ -242,3 +244,110 @@ def test_ffmpeg_tools_run_maps_timeout_to_ffmpeg_error(monkeypatch) -> None:
         assert "таймаут" in str(exc).lower()
     else:
         raise AssertionError("Expected FFmpegError")
+
+
+def test_pipeline_asr_failure_is_partial_manual_path(monkeypatch, tmp_path) -> None:
+    out_path = tmp_path / "video6.mkv"
+    out_path.write_bytes(b"ok")
+
+    monkeypatch.setattr("invision_api.services.video_processing.pipeline.validate_presentation_video_only", lambda _url: _ok_preflight())
+    monkeypatch.setattr("invision_api.services.video_processing.pipeline.ffmpeg_tools.make_temp_video_path", lambda: out_path)
+    monkeypatch.setattr(
+        "invision_api.services.video_processing.pipeline.ffmpeg_tools.download_media_url_to_file",
+        lambda _url, _out, max_seconds: None,
+    )
+    monkeypatch.setattr(
+        "invision_api.services.video_processing.pipeline.ffmpeg_tools.probe_media_metadata",
+        lambda _path: MediaMetadata(
+            duration_sec=75.0,
+            has_video=True,
+            has_audio=True,
+            width=1280,
+            height=720,
+            codec_video="h264",
+            codec_audio="aac",
+            container="mp4",
+        ),
+    )
+    monkeypatch.setattr("invision_api.services.video_processing.pipeline.ffmpeg_tools.extract_frame_png", lambda _p, png, timestamp_sec: png.write_bytes(b"x"))
+    monkeypatch.setattr("invision_api.services.video_processing.pipeline.frame_has_face", lambda _png: False)
+    monkeypatch.setattr("invision_api.services.video_processing.pipeline.ffmpeg_tools.extract_audio_wav_16k_mono", lambda _p, wav, max_seconds: wav.write_bytes(b"wav"))
+    monkeypatch.setattr(
+        "invision_api.services.video_processing.pipeline.transcribe_audio_wav",
+        lambda _wav: (_ for _ in ()).throw(ASRProviderError("upstream 503")),
+    )
+
+    out = run_presentation_pipeline("https://cdn.example.com/video6.mp4")
+    assert out.media_status == "partial"
+    assert out.commission_summary == "Текст не обнаружен"
+    assert any("транскрибация недоступна" in w.lower() for w in out.warnings)
+
+
+def test_pipeline_summary_provider_failure_uses_extractive_fallback(monkeypatch, tmp_path) -> None:
+    out_path = tmp_path / "video7.mkv"
+    out_path.write_bytes(b"ok")
+
+    monkeypatch.setattr("invision_api.services.video_processing.pipeline.validate_presentation_video_only", lambda _url: _ok_preflight())
+    monkeypatch.setattr("invision_api.services.video_processing.pipeline.ffmpeg_tools.make_temp_video_path", lambda: out_path)
+    monkeypatch.setattr(
+        "invision_api.services.video_processing.pipeline.ffmpeg_tools.download_media_url_to_file",
+        lambda _url, _out, max_seconds: None,
+    )
+    monkeypatch.setattr(
+        "invision_api.services.video_processing.pipeline.ffmpeg_tools.probe_media_metadata",
+        lambda _path: MediaMetadata(
+            duration_sec=120.0,
+            has_video=True,
+            has_audio=True,
+            width=1280,
+            height=720,
+            codec_video="h264",
+            codec_audio="aac",
+            container="mp4",
+        ),
+    )
+    monkeypatch.setattr("invision_api.services.video_processing.pipeline.ffmpeg_tools.extract_frame_png", lambda _p, png, timestamp_sec: png.write_bytes(b"x"))
+    monkeypatch.setattr("invision_api.services.video_processing.pipeline.frame_has_face", lambda _png: True)
+    monkeypatch.setattr("invision_api.services.video_processing.pipeline.ffmpeg_tools.extract_audio_wav_16k_mono", lambda _p, wav, max_seconds: wav.write_bytes(b"wav"))
+    monkeypatch.setattr(
+        "invision_api.services.video_processing.pipeline.transcribe_audio_wav",
+        lambda _wav: (
+            "Я начал делать проект сам. Потом собрал команду и распределил роли. "
+            "Мы столкнулись с проблемами и я довёл задачу до конца. "
+            "Я понял, как лучше планировать работу и учиться на ошибках.",
+            None,
+        ),
+    )
+    monkeypatch.setattr(
+        "invision_api.services.video_processing.pipeline.summarize_transcript_ru",
+        lambda _raw: (_ for _ in ()).throw(SummaryProviderError("provider down")),
+    )
+
+    out = run_presentation_pipeline("https://cdn.example.com/video7.mp4")
+    sentences = [s for s in re.split(r"(?<=[.!?])\s+", out.commission_summary.strip()) if s]
+    assert out.media_status == "ready"
+    assert out.commission_summary != "Текст не обнаружен"
+    assert 1 <= len(sentences) <= 3
+    assert any("суммаризация недоступна" in w.lower() for w in out.warnings)
+
+
+def test_select_best_ytdlp_output_prefers_video_with_audio(monkeypatch, tmp_path) -> None:
+    v_only = tmp_path / "src.v.mp4"
+    av = tmp_path / "src.av.mp4"
+    a_only = tmp_path / "src.a.m4a"
+    v_only.write_bytes(b"x" * 10)
+    av.write_bytes(b"x" * 20)
+    a_only.write_bytes(b"x" * 30)
+
+    mapping = {
+        v_only: MediaMetadata(1.0, True, False, 100, 100, "h264", None, "mp4"),
+        av: MediaMetadata(1.0, True, True, 100, 100, "h264", "aac", "mp4"),
+        a_only: MediaMetadata(1.0, False, True, None, None, None, "aac", "m4a"),
+    }
+
+    monkeypatch.setattr(
+        "invision_api.services.video_processing.ffmpeg_tools.probe_media_metadata",
+        lambda path: mapping[path],
+    )
+    selected = ffmpeg_tools._select_best_ytdlp_output([v_only, av, a_only])
+    assert selected == av

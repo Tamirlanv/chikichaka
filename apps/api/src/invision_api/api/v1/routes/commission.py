@@ -27,7 +27,7 @@ from invision_api.models.user import User
 from invision_api.models.application import Document
 from invision_api.repositories import admissions_repository, document_repository
 from invision_api.services import candidate_stage_email_service, engagement_scoring_service
-from invision_api.services.storage import get_storage
+from invision_api.services.storage_read_service import read_document_bytes_with_fallback
 
 router = APIRouter()
 
@@ -192,7 +192,7 @@ def get_application_document_file(
     if not doc:
         raise HTTPException(status_code=404, detail="Документ не найден")
     try:
-        data = get_storage().read_bytes(doc.storage_key)
+        data = read_document_bytes_with_fallback(document_id=document_id, storage_key=doc.storage_key)
     except (FileNotFoundError, OSError):
         raise HTTPException(status_code=404, detail="Файл не найден в хранилище")
     media = doc.mime_type or "application/octet-stream"

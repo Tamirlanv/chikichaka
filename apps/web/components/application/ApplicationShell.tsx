@@ -204,11 +204,21 @@ export function ApplicationShell({ children }: Props) {
     router.replace("/application");
   }, [statusLoading, redirectInterviewRouteToForm, router]);
 
-  function handleOpenModal() {
+  const handleOpenModal = useCallback(() => {
     setReview(null);
     setModalOpen(true);
     void loadReview();
-  }
+  }, [loadReview]);
+
+  useEffect(() => {
+    const onOpenSubmitConfirmation = () => {
+      handleOpenModal();
+    };
+    window.addEventListener("application:open-submit-confirmation", onOpenSubmitConfirmation);
+    return () => {
+      window.removeEventListener("application:open-submit-confirmation", onOpenSubmitConfirmation);
+    };
+  }, [handleOpenModal]);
 
   async function handleClearForm() {
     try {

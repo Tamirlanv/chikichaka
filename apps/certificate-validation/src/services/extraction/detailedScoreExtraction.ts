@@ -17,6 +17,7 @@ export type DetailedScore = {
   targetFieldFound: boolean;
   targetFieldType: TargetFieldType;
   targetFieldEvidence: string | null;
+  extractionConfidenceTier: "high" | "medium" | "low" | null;
 };
 
 function clampIeltsBand(n: number): boolean {
@@ -53,6 +54,7 @@ function buildFound(
     targetFieldFound: true,
     targetFieldType,
     targetFieldEvidence,
+    extractionConfidenceTier: "medium",
   };
 }
 
@@ -66,6 +68,7 @@ function buildMissing(
     targetFieldFound: false,
     targetFieldType,
     targetFieldEvidence: null,
+    extractionConfidenceTier: null,
   };
 }
 
@@ -118,7 +121,10 @@ export function extractIeltsDetailed(text: string): DetailedScore {
       const score = ieltsScoreFromToken(match[1] ?? "");
       if (score == null) continue;
       const evidence = oneLine.slice(Math.max(0, match.index - 30), Math.min(oneLine.length, match.index + 120));
-      return buildFound(score, method, "ielts_overall_band", evidence);
+      const out = buildFound(score, method, "ielts_overall_band", evidence);
+      out.extractionConfidenceTier =
+        method === "ielts:overall_band_score_line" || method === "ielts:overall_band_line" ? "high" : "medium";
+      return out;
     }
   }
 
@@ -131,7 +137,9 @@ export function extractIeltsDetailed(text: string): DetailedScore {
     const trailing = line.match(/([456789](?:[.,][05])?)\s*$/);
     const score = trailing ? ieltsScoreFromToken(trailing[1] ?? "") : null;
     if (score != null) {
-      return buildFound(score, "ielts:overall_line_trailing_number", "ielts_overall_band", line.slice(0, 180));
+      const out = buildFound(score, "ielts:overall_line_trailing_number", "ielts_overall_band", line.slice(0, 180));
+      out.extractionConfidenceTier = "medium";
+      return out;
     }
   }
 
@@ -156,7 +164,9 @@ export function extractToeflDetailed(text: string): DetailedScore {
   if (candidates.length) {
     const best = candidates.reduce((a, b) => (a.v >= b.v ? a : b));
     const evidence = text.slice(Math.max(0, best.i - 24), Math.min(text.length, best.i + 80)).replace(/\s+/g, " ");
-    return buildFound(best.v, best.method, "toefl_total_score", evidence);
+    const out = buildFound(best.v, best.method, "toefl_total_score", evidence);
+    out.extractionConfidenceTier = best.method === "toefl:total_score_line" ? "high" : "medium";
+    return out;
   }
 
   const readingBlock = text.match(/reading[^\n]{0,40}([0-9]{1,3})/i);
@@ -172,7 +182,9 @@ export function extractToeflDetailed(text: string): DetailedScore {
         if (v >= 60 && v <= 120) {
           const idx = m3.index ?? 0;
           const evidence = text.slice(Math.max(0, idx - 24), Math.min(text.length, idx + 80)).replace(/\s+/g, " ");
-          return buildFound(v, "toefl:weak_from_section_scores_context", "toefl_total_score", evidence);
+          const out = buildFound(v, "toefl:weak_from_section_scores_context", "toefl_total_score", evidence);
+          out.extractionConfidenceTier = "low";
+          return out;
         }
       }
     }
@@ -199,8 +211,10 @@ function rankEntCandidate(text: string, value: number, index: number): number {
   const hasEntMarker = /(?:\bент\b|\bкт\b|uac|тест)/i.test(ctx);
   const hasAnti = /(candidate|серия|номер|рег(истрац|\.?)|certificate\s*no|дата|date|год|жыл|№)/i.test(ctx);
   const hasSection = /(в том числе|ішінде|матем|физ|хим|биол|истор|геог|reading|listening|writing|speaking)/i.test(ctx);
+  const hasFinalHeader = /(итогов\w*\s*балл|қорытынды\s*балл|жалпы\s*балл|общ(?:ий|ая|ее)\s*балл)/i.test(ctx);
 
   let rank = 0;
+  if (hasFinalHeader) rank += 9;
   if (hasResultAnchor) rank += 7;
   if (hasScoreAnchor) rank += 5;
   if (hasResultAnchor && hasScoreAnchor) rank += 6;
@@ -208,8 +222,10 @@ function rankEntCandidate(text: string, value: number, index: number): number {
   if (/(из\s*200|\/\s*200|200\s*бал)/i.test(ctx)) rank += 2;
   if (value >= 90 && value <= 130) rank += 1;
   if (value === 100) rank += 3;
-  if (hasAnti) rank -= 6;
-  if (hasSection) rank -= 4;
+  if (hasAnti) rank -= 8;
+  if (hasSection) rank -= 7;
+  if (hasSection && !hasFinalHeader) rank -= 3;
+  if (hasAnti && !hasFinalHeader) rank -= 3;
   if (/кт\s*[-:—]?\s*[0-9]{2,3}/i.test(ctx)) rank += 1;
   return rank;
 }
@@ -327,12 +343,16 @@ function extractKazakhDetailed(text: string, kind: "ent" | "nis_12"): DetailedSc
     const best = candidates[0];
     const minRank = kind === "ent" ? 8 : 6;
     if (best.rank >= minRank) {
-      return buildFound(
+      const out = buildFound(
         best.v,
         `${best.method}:ranked`,
         kind === "ent" ? "ent_total_score" : "nis_total_score",
         best.evidence,
       );
+      if (best.rank >= 14) out.extractionConfidenceTier = "high";
+      else if (best.rank >= 10) out.extractionConfidenceTier = "medium";
+      else out.extractionConfidenceTier = "low";
+      return out;
     }
   }
 
@@ -364,6 +384,7 @@ export function extractScoreForDocumentType(text: string, documentType: Document
         targetFieldFound: false,
         targetFieldType: null,
         targetFieldEvidence: null,
+        extractionConfidenceTier: null,
       };
   }
 }

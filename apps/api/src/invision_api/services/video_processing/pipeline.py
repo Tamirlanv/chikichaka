@@ -21,8 +21,8 @@ from invision_api.services.video_processing.constants import (
     SAMPLE_FRAME_COUNT,
 )
 from invision_api.services.video_processing.face_detection_opencv import frame_has_face
-from invision_api.services.video_processing.summary_openai import summarize_transcript_ru
-from invision_api.services.video_processing.transcription_openai import transcribe_audio_wav
+from invision_api.services.video_processing.summary_openai import SummaryGenerationError, summarize_transcript_ru
+from invision_api.services.video_processing.transcription_openai import ASRTranscriptionError, transcribe_audio_wav
 
 logger = logging.getLogger(__name__)
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
@@ -130,6 +130,24 @@ def _cap_summary_sentences(text: str, *, max_sentences: int = 6) -> str:
     if not parts or len(parts) <= max_sentences:
         return s
     return " ".join(parts[:max_sentences]).strip()
+
+
+def _extractive_summary_from_transcript(transcript: str, *, max_sentences: int = 3, max_chars: int = 560) -> str:
+    """Fallback summary when LLM summarization is unavailable."""
+    raw = (transcript or "").strip()
+    if not raw:
+        return ""
+    parts = [p.strip() for p in _SENTENCE_SPLIT_RE.split(raw) if p.strip()]
+    if not parts:
+        return ""
+    informative = [p for p in parts if len(p) >= 20] or parts
+    summary = " ".join(informative[:max_sentences]).strip()
+    if len(summary) <= max_chars:
+        return summary
+    trimmed = summary[:max_chars].rstrip()
+    if "." in trimmed:
+        trimmed = trimmed.rsplit(".", 1)[0].strip()
+    return f"{trimmed}." if trimmed else ""
 
 
 def _normalized_exception_message(exc: Exception, *, fallback: str) -> str:
@@ -298,12 +316,19 @@ def run_presentation_pipeline(video_url: str) -> VideoPipelineOutcome:
 
             raw = ""
             tr_conf: float | None = None
+            asr_failed = False
             if has_a:
                 wav = Path(tmpdir) / "audio.wav"
                 try:
                     audio_cap = min(MAX_AUDIO_FOR_TRANSCRIPTION_SEC, duration)
                     ffmpeg_tools.extract_audio_wav_16k_mono(local_video, wav, max_seconds=audio_cap)
-                    raw, tr_conf = transcribe_audio_wav(wav)
+                    try:
+                        raw, tr_conf = transcribe_audio_wav(wav)
+                    except ASRTranscriptionError as exc:
+                        asr_failed = True
+                        warnings.append(
+                            f"Транскрибация недоступна: {_normalized_exception_message(exc, fallback='ASR ошибка')}"
+                        )
                 except ffmpeg_tools.FFmpegError:
                     warnings.append("Не удалось извлечь аудио для транскрибации.")
                 except Exception:
@@ -316,10 +341,20 @@ def run_presentation_pipeline(video_url: str) -> VideoPipelineOutcome:
             if has_speech:
                 try:
                     summary = summarize_transcript_ru(raw).strip()
-                except Exception:
+                except SummaryGenerationError as exc:
+                    warnings.append(
+                        f"Суммаризация недоступна: {_normalized_exception_message(exc, fallback='LLM summary error')}"
+                    )
+                    summary = _extractive_summary_from_transcript(raw)
+                except Exception as exc:
                     logger.exception("summary layer raised")
-                    summary = ""
-                summary = _cap_summary_sentences(summary)
+                    warnings.append(
+                        f"Суммаризация недоступна: {_normalized_exception_message(exc, fallback='LLM summary error')}"
+                    )
+                    summary = _extractive_summary_from_transcript(raw)
+                summary = _cap_summary_sentences(summary, max_sentences=6)
+                if not summary:
+                    summary = _extractive_summary_from_transcript(raw)
                 if not summary:
                     summary = COMMISSION_NO_TEXT
             else:
@@ -327,6 +362,8 @@ def run_presentation_pipeline(video_url: str) -> VideoPipelineOutcome:
 
             if errors:
                 media = MEDIA_STATUS_PARTIAL if frames_ok > 0 or has_v else MEDIA_STATUS_FAILED
+            elif asr_failed:
+                media = MEDIA_STATUS_PARTIAL
             else:
                 media = MEDIA_STATUS_READY
 

@@ -19,6 +19,12 @@ import { saveDraft as saveDraftLocal, loadDraft, clearDraft } from "@/lib/draft-
 import { readRegisterFlow } from "@/lib/register-flow";
 import formStyles from "@/components/application/form-ui.module.css";
 
+const MIN_PHONE_DIGITS = 11;
+
+function countPhoneDigits(value: string | undefined): number {
+  return (value ?? "").replace(/\D/g, "").length;
+}
+
 const personalFormSchema = personalSchema.extend({
   middle_name: z.string().optional(),
   date_of_birth: z.string().min(1, { message: "Укажите дату рождения" }),
@@ -29,21 +35,78 @@ const personalFormSchema = personalSchema.extend({
   document_number: z.string().min(1, { message: "Укажите номер документа" }),
   document_issue_date: z.string().min(1, { message: "Укажите дату выдачи" }),
   document_issued_by: z.string().min(1, { message: "Укажите кем выдан" }),
-  father_last: z.string().min(1, { message: "Укажите фамилию отца" }),
-  father_first: z.string().min(1, { message: "Укажите имя отца" }),
+  father_last: z.string().optional().or(z.literal("")),
+  father_first: z.string().optional().or(z.literal("")),
   father_middle: z.string().optional(),
-  father_phone: z.string().min(1, { message: "Укажите телефон отца" }),
-  mother_last: z.string().min(1, { message: "Укажите фамилию матери" }),
-  mother_first: z.string().min(1, { message: "Укажите имя матери" }),
+  father_phone: z.string().optional().or(z.literal("")),
+  mother_last: z.string().optional().or(z.literal("")),
+  mother_first: z.string().optional().or(z.literal("")),
   mother_middle: z.string().optional(),
-  mother_phone: z.string().min(1, { message: "Укажите телефон матери" }),
-  guardian_last: z.string().optional(),
-  guardian_first: z.string().optional(),
+  mother_phone: z.string().optional().or(z.literal("")),
+  guardian_last: z.string().optional().or(z.literal("")),
+  guardian_first: z.string().optional().or(z.literal("")),
   guardian_middle: z.string().optional(),
-  guardian_phone: z.string().optional(),
+  guardian_phone: z.string().optional().or(z.literal("")),
   consent_privacy: z.boolean().refine((v) => v === true, { message: "Необходимо согласие" }),
   consent_age: z.boolean().refine((v) => v === true, { message: "Необходимо подтверждение" }),
   identity_document_id: z.string().min(1, { message: "Загрузите документ" }),
+}).superRefine((data, ctx) => {
+  const parentBlocks: Array<{
+    key: "father" | "mother" | "guardian";
+    last: string;
+    first: string;
+    phone: string;
+    phonePath: "father_phone" | "mother_phone" | "guardian_phone";
+  }> = [
+    {
+      key: "father",
+      last: (data.father_last ?? "").trim(),
+      first: (data.father_first ?? "").trim(),
+      phone: (data.father_phone ?? "").trim(),
+      phonePath: "father_phone",
+    },
+    {
+      key: "mother",
+      last: (data.mother_last ?? "").trim(),
+      first: (data.mother_first ?? "").trim(),
+      phone: (data.mother_phone ?? "").trim(),
+      phonePath: "mother_phone",
+    },
+    {
+      key: "guardian",
+      last: (data.guardian_last ?? "").trim(),
+      first: (data.guardian_first ?? "").trim(),
+      phone: (data.guardian_phone ?? "").trim(),
+      phonePath: "guardian_phone",
+    },
+  ];
+
+  const completeBlocks = parentBlocks.filter(
+    (block) =>
+      block.last.length > 0 &&
+      block.first.length > 0 &&
+      block.phone.length > 0 &&
+      countPhoneDigits(block.phone) >= MIN_PHONE_DIGITS,
+  );
+
+  if (completeBlocks.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["guardian_last"],
+      message: "Заполните хотя бы одного родителя или законного представителя",
+    });
+  }
+
+  for (const block of parentBlocks) {
+    if (!block.last || !block.first || !block.phone) continue;
+    if (countPhoneDigits(block.phone) < MIN_PHONE_DIGITS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [block.phonePath],
+        message: "Введите корректный номер телефона",
+      });
+    }
+  }
 });
 
 type PersonalForm = z.infer<typeof personalFormSchema>;
@@ -459,6 +522,11 @@ export default function PersonalPage() {
             {...register("guardian_phone")}
           />
         </div>
+        {(errors.guardian_last || errors.guardian_first || errors.guardian_phone) && (
+          <p className="error" style={{ color: "#dc2626", fontSize: 14, margin: 0 }}>
+            {errors.guardian_last?.message || errors.guardian_first?.message || errors.guardian_phone?.message}
+          </p>
+        )}
       </FormSection>
 
       <Divider />

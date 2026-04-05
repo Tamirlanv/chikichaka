@@ -78,6 +78,26 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
+    asr_base_url: str = Field(
+        default="https://api.openai.com/v1",
+        validation_alias=AliasChoices("ASR_BASE_URL"),
+        description="OpenAI-compatible ASR endpoint base URL for video transcription.",
+    )
+    asr_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ASR_API_KEY"),
+        description="Dedicated ASR API key. Falls back to OPENAI_API_KEY when missing.",
+    )
+    asr_model: str = Field(
+        default="whisper-1",
+        validation_alias=AliasChoices("ASR_MODEL"),
+        description="ASR model name for OpenAI-compatible audio transcription API.",
+    )
+    asr_timeout_seconds: float = Field(
+        default=90.0,
+        validation_alias=AliasChoices("ASR_TIMEOUT_SECONDS"),
+        description="Timeout for ASR transcription requests.",
+    )
 
     environment: Literal["local", "staging", "production"] = "local"
 

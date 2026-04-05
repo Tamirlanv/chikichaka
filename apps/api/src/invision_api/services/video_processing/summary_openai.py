@@ -2,18 +2,30 @@ from __future__ import annotations
 
 import logging
 
-from openai import OpenAI
+from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
 from invision_api.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 
+class SummaryGenerationError(RuntimeError):
+    """Base class for summary generation failures."""
+
+
+class SummaryConfigError(SummaryGenerationError):
+    """Raised when LLM summary client configuration is missing."""
+
+
+class SummaryProviderError(SummaryGenerationError):
+    """Raised when summary provider fails."""
+
+
 def summarize_transcript_ru(transcript: str) -> str:
     """5–6 sentences in Russian based on transcript only."""
     settings = get_settings()
     if not settings.openai_api_key:
-        return ""
+        raise SummaryConfigError("OPENAI_API_KEY не настроен для суммаризации.")
     t = transcript.strip()
     if len(t) < 30:
         return ""
@@ -36,6 +48,10 @@ def summarize_transcript_ru(transcript: str) -> str:
             timeout=90.0,
         )
         return (resp.choices[0].message.content or "").strip()
-    except Exception:
+    except (APITimeoutError, APIConnectionError) as exc:
+        raise SummaryProviderError(f"Сервис суммаризации недоступен: {exc}") from exc
+    except APIStatusError as exc:
+        raise SummaryProviderError(f"Сервис суммаризации вернул статус: {exc.status_code}") from exc
+    except Exception as exc:
         logger.exception("LLM summary failed")
-        return ""
+        raise SummaryProviderError(f"Ошибка суммаризации: {exc}") from exc

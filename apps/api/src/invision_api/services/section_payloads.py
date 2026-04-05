@@ -14,6 +14,7 @@ from invision_api.services.growth_path.config import GROWTH_CHAR_LIMITS, GROWTH_
 from invision_api.services.growth_path.normalize import normalize_growth_text
 
 _DD_MM_YYYY = re.compile(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$")
+_MIN_PHONE_DIGITS = 11
 
 
 def parse_optional_date(v: Any) -> date | None:
@@ -108,6 +109,25 @@ class ContactSectionPayload(BaseModel):
     emergency_contact_phone_e164: str | None = Field(default=None, max_length=32)
     consent_privacy: bool = False
     consent_parent: bool = False
+
+    @field_validator(
+        "phone_e164",
+        "alternate_phone_e164",
+        "whatsapp",
+        "guardian_phone_e164",
+        "emergency_contact_phone_e164",
+    )
+    @classmethod
+    def validate_phone_length(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        s = str(v).strip()
+        if not s:
+            return None
+        digits = re.sub(r"\D", "", s)
+        if len(digits) < _MIN_PHONE_DIGITS:
+            raise ValueError("phone must contain at least 11 digits")
+        return s
 
 
 class EducationItemPayload(BaseModel):

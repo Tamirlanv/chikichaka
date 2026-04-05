@@ -37,6 +37,36 @@ def _partial_outcome() -> VideoPipelineOutcome:
     )
 
 
+def _asr_partial_outcome() -> VideoPipelineOutcome:
+    return VideoPipelineOutcome(
+        provider="youtube",
+        resource_type="video",
+        ingestion_strategy="youtube_ytdlp",
+        normalized_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        access_status="reachable",
+        duration_sec=213,
+        duration_formatted="3:33",
+        width=1280,
+        height=720,
+        codec_video="h264",
+        codec_audio="aac",
+        container="mp4",
+        has_video_track=True,
+        has_audio_track=True,
+        sampled_timestamps_sec=[10.0, 30.0, 50.0, 70.0, 90.0, 110.0],
+        frames_extracted_success=6,
+        face_detected_frames_count=3,
+        raw_transcript="",
+        transcript_confidence=None,
+        commission_summary="Текст не обнаружен",
+        candidate_visible=True,
+        has_speech=False,
+        warnings=["Транскрибация недоступна: ASR недоступен: timeout"],
+        errors=[],
+        media_status="partial",
+    )
+
+
 def test_video_validation_processor_persists_extended_payload_and_manual_state(
     db: Session, factory, monkeypatch
 ) -> None:
@@ -72,3 +102,23 @@ def test_video_validation_processor_persists_extended_payload_and_manual_state(
     assert row.manual_review_required is True
     assert row.codec_video == "h264"
     assert row.codec_audio == "aac"
+
+
+def test_video_validation_processor_marks_asr_partial_with_error_code(db: Session, factory, monkeypatch) -> None:
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile, state="under_screening")
+    factory.fill_required_sections(db, app)
+
+    monkeypatch.setattr(
+        "invision_api.services.data_check.processors.video_validation_processor.run_presentation_pipeline",
+        lambda _url: _asr_partial_outcome(),
+    )
+
+    result = run_video_validation_processing(db, application_id=app.id, candidate_id=profile.id)
+    db.flush()
+
+    assert result.status == "manual_review_required"
+    assert result.payload is not None
+    assert result.payload["mediaStatus"] == "partial"
+    assert result.payload["errorCode"] == "asr_unavailable"

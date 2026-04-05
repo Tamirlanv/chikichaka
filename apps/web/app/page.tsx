@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { DemoVideosSection } from "./DemoVideosSection";
 import styles from "./page.module.css";
 
 const RESOURCES = [
@@ -13,7 +14,7 @@ const RESOURCES = [
     title: "Google Disk – Презентация",
     description: "Ссылка на презентацию проекта, с показательным примером возможностей платформы",
     button: "Google Disk",
-    link: "https://drive.google.com/file/d/1XLUyT3JOtyD9fhxGrGo-SSDrJPRMJWLJ/view?usp=sharing",
+    link: "https://drive.google.com/file/d/1PLhqmbNZjwVL64t9WklI4xr5Eb134ss3/view?usp=sharing",
   },
   {
     title: "Google Disk – Документация",
@@ -61,6 +62,8 @@ export default function HomePage() {
 
       <main className={styles.main}>
         <p className={styles.byline}>by KOMO</p>
+
+        <DemoVideosSection />
 
         <section className={styles.resources} aria-labelledby="resources-heading">
           <h2 id="resources-heading" className={styles.resourcesTitle}>

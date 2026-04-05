@@ -33,6 +33,8 @@ export type CertificateValidationResult = {
     declarationMismatch?: boolean;
     /** Which rule matched (e.g. ielts:overall_band_score_line) */
     extractionMethod?: string | null;
+    /** Confidence tier of target-field extraction */
+    extractionConfidenceTier?: "high" | "medium" | "low" | null;
     /** Whether parser found the explicit target score field for this document type */
     targetFieldFound?: boolean;
     /** Target field id used by parser (e.g. ielts_overall_band, ent_total_score) */

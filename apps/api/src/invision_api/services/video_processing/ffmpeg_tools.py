@@ -279,6 +279,45 @@ def normalize_dropbox_download_url(url: str) -> str | None:
     return urlunsplit((sp.scheme or "https", sp.netloc, sp.path, urlencode(query, doseq=True), sp.fragment))
 
 
+def _select_best_ytdlp_output(files: list[Path]) -> Path:
+    """Pick the most useful media artifact produced by yt-dlp.
+
+    Priority:
+    1) has video + has audio
+    2) has video only
+    3) has audio only
+    Then larger file size as tie-breaker.
+    """
+    best: Path | None = None
+    best_score = -1
+    best_size = -1
+
+    for candidate in files:
+        try:
+            meta = probe_media_metadata(candidate)
+            score = 0
+            if meta.has_video:
+                score += 2
+            if meta.has_audio:
+                score += 1
+        except FFmpegError:
+            score = 0
+
+        try:
+            size = int(candidate.stat().st_size)
+        except OSError:
+            size = 0
+
+        if score > best_score or (score == best_score and size > best_size):
+            best = candidate
+            best_score = score
+            best_size = size
+
+    if best is None or best_score <= 0:
+        raise FFmpegError("yt-dlp не смог подготовить пригодный видеофайл с дорожками.")
+    return best
+
+
 def download_youtube_with_ytdlp(url: str, out_path: Path, *, max_seconds: int) -> None:
     """Download best-effort video via yt-dlp (YouTube is not a direct media URL for ffmpeg -i)."""
     import glob
@@ -305,10 +344,10 @@ def download_youtube_with_ytdlp(url: str, out_path: Path, *, max_seconds: int) -
         proc = _run(args, timeout=3600)
         if proc.returncode != 0:
             raise FFmpegError(proc.stderr or "yt-dlp download failed")
-        files = sorted(glob.glob(str(Path(td) / "src.*")))
+        files = [Path(p) for p in sorted(glob.glob(str(Path(td) / "src.*")))]
         if not files:
             raise FFmpegError("yt-dlp did not produce a video file.")
-        src = Path(files[0])
+        src = _select_best_ytdlp_output(files)
         shutil.move(str(src), out_path)
     finally:
         shutil.rmtree(td, ignore_errors=True)

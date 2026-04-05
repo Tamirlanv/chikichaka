@@ -794,6 +794,17 @@ def board_metrics(
         limit=10000,
         offset=0,
     )
+
+    def _program_bucket(program_value: str | None) -> str:
+        raw = (program_value or "").strip().lower()
+        if not raw:
+            return "other"
+        if "foundation" in raw:
+            return "foundation"
+        if "бак" in raw or "bachelor" in raw:
+            return "bachelor"
+        return "other"
+
     now = datetime.now(tz=UTC)
     if range_value == "day":
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -809,8 +820,8 @@ def board_metrics(
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today = len([r for r in rows if (r.submitted_at and r.submitted_at >= today_start)])
     in_range_by_program = [r for r in rows_all_programs if (r.submitted_at and r.submitted_at >= start)]
-    foundation = len([r for r in in_range_by_program if (r.program or "").strip() == "Foundation"])
-    bachelor = len([r for r in in_range_by_program if (r.program or "").strip() == "Бакалавриат"])
+    foundation = len([r for r in in_range_by_program if _program_bucket(r.program) == "foundation"])
+    bachelor = len([r for r in in_range_by_program if _program_bucket(r.program) == "bachelor"])
     return {
         "totalApplications": total,
         "todayApplications": today,

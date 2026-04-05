@@ -86,6 +86,7 @@ function DocumentsPageInner() {
   const [personal, setPersonal] = useState<CommissionApplicationPersonalInfoView | null>(null);
   const [personalLoading, setPersonalLoading] = useState(false);
   const [personalError, setPersonalError] = useState<string | null>(null);
+  const [docActionError, setDocActionError] = useState<string | null>(null);
 
   const [docFilter, setDocFilter] = useState<DocumentCategoryFilter>("all");
 
@@ -144,6 +145,7 @@ function DocumentsPageInner() {
   useEffect(() => {
     if (!selectedId) {
       setPersonal(null);
+      setDocActionError(null);
       return;
     }
     let cancelled = false;
@@ -166,6 +168,10 @@ function DocumentsPageInner() {
       cancelled = true;
     };
   }, [selectedId]);
+
+  useEffect(() => {
+    setDocActionError(null);
+  }, [selectedId, docFilter]);
 
   const filtered = useMemo(() => {
     if (!personal?.personalInfo) return { documents: [] as CommissionApplicationPersonalInfoView["personalInfo"]["documents"], showVideo: false };
@@ -235,6 +241,7 @@ function DocumentsPageInner() {
               )}
               {leftState.kind === "loading" && <p className={styles.loadingText}>Загрузка документов…</p>}
               {leftState.kind === "error" && <p className={styles.errorText}>{leftState.text}</p>}
+              {docActionError ? <p className={styles.errorText}>{docActionError}</p> : null}
               {leftState.kind === "no_docs_for_filter" && (
                 <div className={styles.emptyCenter}>
                   <p className={styles.emptyTitle}>Документы выбранного типа не найдены</p>
@@ -318,7 +325,16 @@ function DocumentsPageInner() {
                               type="button"
                               className={styles.docBtnOpen}
                               onClick={() => {
-                                void openCommissionApplicationDocumentInNewTab(selectedId!, d.id);
+                                void (async () => {
+                                  try {
+                                    setDocActionError(null);
+                                    await openCommissionApplicationDocumentInNewTab(selectedId!, d.id);
+                                  } catch (error) {
+                                    setDocActionError(
+                                      error instanceof Error ? error.message : "Не удалось открыть документ",
+                                    );
+                                  }
+                                })();
                               }}
                             >
                               Открыть
@@ -327,7 +343,16 @@ function DocumentsPageInner() {
                               type="button"
                               className={styles.docBtnDownload}
                               onClick={() => {
-                                void downloadCommissionApplicationDocument(selectedId!, d.id, d.fileName);
+                                void (async () => {
+                                  try {
+                                    setDocActionError(null);
+                                    await downloadCommissionApplicationDocument(selectedId!, d.id, d.fileName);
+                                  } catch (error) {
+                                    setDocActionError(
+                                      error instanceof Error ? error.message : "Не удалось скачать документ",
+                                    );
+                                  }
+                                })();
                               }}
                             >
                               Скачать
