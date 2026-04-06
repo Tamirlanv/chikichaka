@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { AiInterviewDraftQuestion, AiInterviewDraftView } from "@/lib/commission/types";
 import { ApiError } from "@/lib/api-client";
 import {
@@ -289,6 +290,21 @@ type AiInterviewHowItWorksModalProps = {
 };
 
 function AiInterviewHowItWorksModal({ open, onClose }: AiInterviewHowItWorksModalProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -298,50 +314,34 @@ function AiInterviewHowItWorksModal({ open, onClose }: AiInterviewHowItWorksModa
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!mounted || !open) return null;
 
-  return (
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="ai-interview-how-it-works-title"
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 1200,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "rgba(0,0,0,0.45)",
-        padding: 16,
-      }}
+      className={styles.helpBackdrop}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div
-        style={{
-          width: "min(560px, 100%)",
-          background: "#fff",
-          borderRadius: 16,
-          padding: "24px 20px",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
-        }}
-      >
-        <h2 id="ai-interview-how-it-works-title" style={{ margin: "0 0 12px", fontSize: 18, fontWeight: 600 }}>
+      <div className={styles.helpPanel}>
+        <h2 id="ai-interview-how-it-works-title" className={styles.helpTitle}>
           Как формируются вопросы
         </h2>
-        <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: "#262626" }}>
+        <p className={styles.helpText}>
           Вопросы собираются из анкеты кандидата и материалов заявки. Они помогают комиссии точечно уточнить слабые
           или спорные места, закрыть противоречия и добрать недостающие детали. Поэтому у разных кандидатов набор
           вопросов отличается и зависит от того, что именно осталось не до конца раскрыто.
         </p>
-        <div style={{ marginTop: 20, display: "flex", justifyContent: "center" }}>
-          <button type="button" className="btn" style={{ width: "fit-content" }} onClick={onClose}>
+        <div className="modal-actions modal-actions--single" style={{ marginTop: 20 }}>
+          <button type="button" className="btn" onClick={onClose}>
             Понятно
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
