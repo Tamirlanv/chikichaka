@@ -25,7 +25,10 @@ from invision_api.services import audit_log_service, candidate_activity_service
 from invision_api.core.config import get_settings
 from invision_api.models.enums import DataCheckRunStatus
 from invision_api.services.ai_interview.context import build_interview_context
-from invision_api.services.ai_interview.resolution_summary import try_generate_and_persist_resolution_summary
+from invision_api.services.ai_interview.resolution_summary import (
+    ensure_resolution_summary_available,
+    try_generate_and_persist_resolution_summary,
+)
 from invision_api.services.ai_interview.data_readiness import get_data_check_overall_status
 from invision_api.services.ai_interview.generation import generate_questions_llm
 from invision_api.services.ai_interview.prioritize import compute_signal_weight, question_count_from_weight
@@ -130,9 +133,18 @@ def generate_ai_interview_draft(
         q.pop("_questionTextSanitized", None)
     questions = _normalize_sort_orders(questions)
 
+    issue_candidates = ctx.get("issue_candidates") if isinstance(ctx.get("issue_candidates"), list) else []
+    context_hash = hashlib.sha256(
+        json.dumps(ctx, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:16]
+    generation_source = "llm" if str(gen_meta.get("path") or "llm") == "llm" else "fallback_contextual"
     meta = {
         "signal_weight": w,
         "question_count": n,
+        "issue_count": len(issue_candidates),
+        "context_hash": context_hash,
+        "generation_source": generation_source,
+        "fallback_reason": gen_meta.get("reason"),
         "context_keys": list(ctx.keys()),
         **gen_meta,
     }
@@ -173,16 +185,78 @@ def get_draft_for_commission(db: Session, application_id: UUID) -> dict[str, Any
 
 
 def _draft_payload(row: Any) -> dict[str, Any]:
+    generated_meta = row.generated_from_signals if isinstance(row.generated_from_signals, dict) else {}
     return {
         "applicationId": str(row.application_id),
         "status": row.status,
         "revision": row.revision,
         "questions": row.questions or [],
         "generatedFromSignals": row.generated_from_signals,
+        "generationSource": generated_meta.get("generation_source"),
+        "fallbackReason": generated_meta.get("fallback_reason"),
+        "issueCount": generated_meta.get("issue_count"),
         "generatedAt": row.generated_at.isoformat() if row.generated_at else None,
         "approvedAt": row.approved_at.isoformat() if row.approved_at else None,
         "approvedByUserId": str(row.approved_by_user_id) if row.approved_by_user_id else None,
     }
+
+
+def ensure_ai_interview_draft_best_effort(
+    db: Session,
+    application_id: UUID,
+    *,
+    actor_user_id: UUID | None = None,
+    trigger: str = "stage_transition",
+) -> dict[str, Any] | None:
+    """Autocreate draft when entering application_review; never raise."""
+    app = admissions_repository.get_application_by_id(db, application_id)
+    if not app:
+        logger.info("ai_interview ensure skip application=%s reason=app_not_found trigger=%s", application_id, trigger)
+        return None
+    if app.current_stage != ApplicationStage.application_review.value:
+        logger.info(
+            "ai_interview ensure skip application=%s reason=wrong_stage stage=%s trigger=%s",
+            application_id,
+            app.current_stage,
+            trigger,
+        )
+        return None
+    existing = ai_interview_repository.get_question_set_for_application(db, application_id)
+    if existing:
+        logger.info(
+            "ai_interview ensure skip application=%s reason=already_exists status=%s trigger=%s",
+            application_id,
+            existing.status,
+            trigger,
+        )
+        return _draft_payload(existing)
+    try:
+        out = generate_ai_interview_draft(
+            db,
+            application_id,
+            force=False,
+            actor_user_id=actor_user_id,
+        )
+        logger.info(
+            "ai_interview ensure generated application=%s source=%s issue_count=%s trigger=%s",
+            application_id,
+            out.get("generationSource"),
+            out.get("issueCount"),
+            trigger,
+        )
+        return out
+    except HTTPException as exc:
+        logger.warning(
+            "ai_interview ensure skipped application=%s status=%s detail=%s trigger=%s",
+            application_id,
+            exc.status_code,
+            exc.detail,
+            trigger,
+        )
+        return None
+    except Exception:
+        logger.exception("ai_interview ensure failed application=%s trigger=%s", application_id, trigger)
+        return None
 
 
 def patch_draft_questions(
@@ -571,6 +645,8 @@ def build_commission_ai_interview_session_view(db: Session, application_id: UUID
     db.refresh(app_row)
 
     row = ai_interview_repository.get_question_set_for_application(db, application_id)
+    if row and row.candidate_completed_at and not isinstance(row.resolution_summary, dict):
+        row = ensure_resolution_summary_available(db, application_id=application_id, row=row)
     completed_at = row.candidate_completed_at.isoformat() if row and row.candidate_completed_at else None
 
     items: list[dict[str, Any]] = []
@@ -608,7 +684,7 @@ def build_commission_ai_interview_session_view(db: Session, application_id: UUID
         for r in slot_rows
     ]
 
-    resolution_summary = row.resolution_summary if row else None
+    resolution_summary = row.resolution_summary if row and isinstance(row.resolution_summary, dict) else None
     resolution_error = row.resolution_summary_error if row else None
 
     wst = app_row.interview_preference_window_status

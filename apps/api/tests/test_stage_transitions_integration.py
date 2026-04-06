@@ -31,6 +31,66 @@ def test_screening_passed_moves_to_application_review(db: Session, factory):
     assert app.state == ApplicationState.under_review.value
 
 
+def test_screening_passed_triggers_ai_interview_autodraft(db: Session, factory, monkeypatch):
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile)
+    app.current_stage = ApplicationStage.initial_screening.value
+    app.state = ApplicationState.under_screening.value
+    db.flush()
+
+    called: dict[str, object] = {}
+
+    def _fake_ensure(db_sess, application_id, *, actor_user_id=None, trigger="stage_transition"):
+        called["application_id"] = application_id
+        called["actor_user_id"] = actor_user_id
+        called["trigger"] = trigger
+        return None
+
+    monkeypatch.setattr(
+        "invision_api.services.ai_interview.service.ensure_ai_interview_draft_best_effort",
+        _fake_ensure,
+    )
+
+    ctx = TransitionContext(
+        application_id=app.id,
+        transition=TransitionName.screening_passed,
+        actor_user_id=user.id,
+        actor_type="committee",
+    )
+    apply_transition(db, app, ctx)
+    assert app.current_stage == ApplicationStage.application_review.value
+    assert called.get("application_id") == app.id
+    assert called.get("trigger") == "entered_application_review"
+
+
+def test_screening_passed_transition_not_blocked_when_autodraft_errors(db: Session, factory, monkeypatch):
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile)
+    app.current_stage = ApplicationStage.initial_screening.value
+    app.state = ApplicationState.under_screening.value
+    db.flush()
+
+    def _boom(db_sess, application_id, *, actor_user_id=None, trigger="stage_transition"):
+        raise RuntimeError("autodraft failed")
+
+    monkeypatch.setattr(
+        "invision_api.services.ai_interview.service.ensure_ai_interview_draft_best_effort",
+        _boom,
+    )
+
+    ctx = TransitionContext(
+        application_id=app.id,
+        transition=TransitionName.screening_passed,
+        actor_user_id=user.id,
+        actor_type="committee",
+    )
+    apply_transition(db, app, ctx)
+    assert app.current_stage == ApplicationStage.application_review.value
+    assert app.state == ApplicationState.under_review.value
+
+
 def test_review_complete_moves_to_interview(db: Session, factory):
     user = factory.user(db)
     profile = factory.profile(db, user)

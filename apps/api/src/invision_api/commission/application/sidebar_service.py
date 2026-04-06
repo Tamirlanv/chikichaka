@@ -7,6 +7,7 @@ Two panel types:
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Literal
 from uuid import UUID
@@ -21,6 +22,7 @@ from invision_api.repositories import data_check_repository
 from invision_api.services.data_check.status_service import TERMINAL_UNIT_STATUSES, UNIT_POLICIES, compute_run_status
 from invision_api.models.enums import ApplicationStage, DataCheckUnitType
 from invision_api.repositories import ai_interview_repository
+from invision_api.services import engagement_scoring_service
 from invision_api.commission.application.reviewer_text_sanitizer import (
     dedupe_keep_order as _shared_dedupe_keep_order,
     is_ui_friendly_sentence as _shared_is_ui_friendly_sentence,
@@ -29,6 +31,8 @@ from invision_api.commission.application.reviewer_text_sanitizer import (
     strip_technical_residue as _shared_strip_technical_residue,
     truncate_sentence as _shared_truncate_sentence,
 )
+
+logger = logging.getLogger(__name__)
 
 # Подписи для комиссии (без snake_case в UI)
 _DATA_CHECK_UNIT_LABEL_RU: dict[str, str] = {
@@ -1549,6 +1553,16 @@ def _build_ai_interview_resolution_panel(db: Session, application_id: UUID) -> d
             ],
         }
 
+    if not isinstance(row.resolution_summary, dict):
+        try:
+            from invision_api.services.ai_interview.resolution_summary import (
+                ensure_resolution_summary_available,
+            )
+
+            row = ensure_resolution_summary_available(db, application_id=application_id, row=row) or row
+        except Exception:
+            logger.exception("ai_interview_sidebar_summary_backfill_failed application_id=%s", application_id)
+
     err = (row.resolution_summary_error or "").strip()
     data = row.resolution_summary if isinstance(row.resolution_summary, dict) else None
 
@@ -1560,7 +1574,7 @@ def _build_ai_interview_resolution_panel(db: Session, application_id: UUID) -> d
                 _section_block(
                     "Краткий итог",
                     [
-                        "Автоматическая сводка по AI-собеседованию недоступна. Вопросы и ответы кандидата в основной области страницы.",
+                        "Сводка по AI-собеседованию временно недоступна. Проверьте вопросы и ответы кандидата в основной области страницы.",
                     ],
                 ),
             ],
@@ -1570,7 +1584,7 @@ def _build_ai_interview_resolution_panel(db: Session, application_id: UUID) -> d
         return {
             "type": "summary",
             "title": title,
-            "sections": [_section_block("Краткий итог", ["Сводка пока недоступна."])],
+            "sections": [_section_block("Краткий итог", ["Сводка формируется. Обновите страницу через несколько секунд."])],
         }
 
     short = str(data.get("shortSummary") or "").strip()
@@ -1600,15 +1614,65 @@ def _build_ai_interview_resolution_panel(db: Session, application_id: UUID) -> d
         _section_block("Что удалось уточнить", _lines("resolvedPoints")),
         _section_block("Что остаётся под вопросом", _lines("unresolvedPoints")),
         _section_block("Новая информация", _lines("newInformation")),
+        _section_block(
+            "На что обратить внимание на живом собеседовании",
+            _lines("followUpFocus")
+            if _lines("followUpFocus") != ["—"]
+            else (
+                [f"Уточнить: {line}" for line in _lines("unresolvedPoints") if line != "—"][:4]
+                or ["—"]
+            ),
+        ),
     ]
     return {"type": "summary", "title": title, "sections": sections}
+
+
+def _build_engagement_panel(db: Session, application_id: UUID) -> dict[str, Any]:
+    title = "Вовлеченность"
+    insight = engagement_scoring_service.build_engagement_insight_for_application(db, application_id=application_id)
+    if not insight:
+        return {
+            "type": "summary",
+            "title": title,
+            "sections": [
+                _section_block("Сигналы", ["Данные по вовлечённости пока недоступны."]),
+                _section_block("Интерпретация", ["Недостаточно данных для интерпретации вовлечённости."]),
+                _section_block("Итог", ["Итоговый вывод пока недоступен."]),
+            ],
+        }
+
+    signals = [str(line).strip() for line in (insight.get("signals") or []) if str(line).strip()][:9]
+    interpretation = [
+        str(line).strip() for line in (insight.get("interpretation") or []) if str(line).strip()
+    ][:4]
+    final_line = str(insight.get("final") or "").strip()
+
+    if not signals:
+        signals = ["Данные по вовлечённости пока недоступны."]
+    if not interpretation:
+        interpretation = ["Недостаточно данных для интерпретации вовлечённости."]
+    if not final_line:
+        final_line = "Итоговый вывод пока недоступен."
+
+    return {
+        "type": "summary",
+        "title": title,
+        "sections": [
+            _section_block("Сигналы", signals),
+            _section_block("Интерпретация", interpretation),
+            _section_block("Итог", [final_line]),
+        ],
+    }
 
 
 def get_sidebar_panel(db: Session, *, application_id: UUID, tab: str) -> dict[str, Any]:
     """Return sidebar panel content for the given tab.
 
-    ``tab`` is one of: personal, test, motivation, path, achievements, ai_interview.
+    ``tab`` is one of: personal, test, motivation, path, achievements, ai_interview, engagement.
     """
+    if tab == "engagement":
+        return _build_engagement_panel(db, application_id)
+
     app = db.get(Application, application_id)
     on_initial_screening = bool(app and app.current_stage == ApplicationStage.initial_screening.value)
 

@@ -215,7 +215,7 @@ export function ReviewScoreBlock({ data, onSave, canEdit = true, savedByEmail = 
               ? "Сохранение..."
               : savedUnified !== null && !needsSave
                 ? `Установлено: ${savedUnified}`
-                : "Сохранить"}
+                : "Установить"}
           </button>
           {savedUnified !== null && !needsSave && savedByEmail ? (
             <p
@@ -228,7 +228,7 @@ export function ReviewScoreBlock({ data, onSave, canEdit = true, savedByEmail = 
                 lineHeight: "20px",
               }}
             >
-              Установлено: {savedByEmail}
+              {savedByEmail}
             </p>
           ) : null}
         </>

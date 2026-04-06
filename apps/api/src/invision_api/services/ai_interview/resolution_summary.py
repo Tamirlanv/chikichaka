@@ -50,9 +50,10 @@ class ResolutionSummaryLLMOut(BaseModel):
     resolvedPoints: list[str] = Field(default_factory=list)
     unresolvedPoints: list[str] = Field(default_factory=list)
     newInformation: list[str] = Field(default_factory=list)
+    followUpFocus: list[str] = Field(default_factory=list)
     confidence: Literal["low", "medium", "high"]
 
-    @field_validator("resolvedPoints", "unresolvedPoints", "newInformation", mode="before")
+    @field_validator("resolvedPoints", "unresolvedPoints", "newInformation", "followUpFocus", mode="before")
     @classmethod
     def _cap_lists(cls, v: Any) -> list[str]:
         if not isinstance(v, list):
@@ -88,8 +89,61 @@ def _compact_context_for_summary(ctx: dict[str, Any]) -> dict[str, Any]:
         "review_snapshot": ctx.get("review_snapshot"),
         "data_check": ctx.get("data_check"),
         "ai_review": ctx.get("ai_review"),
+        "issue_candidates": ctx.get("issue_candidates"),
         "_truncated": True,
     }
+
+
+def _short_text(value: str | None, *, max_len: int = 180) -> str:
+    if not value:
+        return ""
+    text = _sanitize_line(value)
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1].rstrip(" ,.;:") + "…"
+
+
+def _first_sentence(value: str | None, *, max_len: int = 180) -> str:
+    if not value:
+        return ""
+    text = _sanitize_line(value)
+    for token in (".", "!", "?"):
+        idx = text.find(token)
+        if idx > 20:
+            text = text[: idx + 1]
+            break
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1].rstrip(" ,.;:") + "…"
+
+
+def _dedupe_non_empty(lines: list[str], *, limit: int = _MAX_LIST_ITEMS) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in lines:
+        text = _sanitize_line(raw)
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(text[:_MAX_STRING_LEN])
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _derive_follow_up_from_unresolved(unresolved: list[str], *, limit: int = 4) -> list[str]:
+    out: list[str] = []
+    for item in unresolved:
+        text = _short_text(item, max_len=180)
+        if not text:
+            continue
+        out.append(f"Уточнить на живом собеседовании: {text}")
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _build_user_payload(
@@ -124,6 +178,115 @@ def _build_user_payload(
     }
 
 
+def _build_fallback_resolution_summary(user_payload: dict[str, Any]) -> dict[str, Any]:
+    """Deterministic, human-readable fallback when LLM is unavailable."""
+    qa_rows = user_payload.get("questionsAndAnswers")
+    rows = qa_rows if isinstance(qa_rows, list) else []
+    resolved: list[str] = []
+    unresolved: list[str] = []
+    new_info: list[str] = []
+    follow_up: list[str] = []
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        q_text = _short_text(str(row.get("questionText") or ""), max_len=140)
+        r_desc = _short_text(str(row.get("reasonDescription") or ""), max_len=140)
+        answer = _sanitize_line(str(row.get("answerText") or ""))
+        if not answer:
+            unresolved.append(
+                f"По вопросу «{q_text or 'без названия'}» не хватает содержательного ответа."
+            )
+            continue
+
+        answer_len = len(answer)
+        if answer_len >= 120:
+            if r_desc:
+                resolved.append(f"Удалось уточнить: {r_desc}.")
+            elif q_text:
+                resolved.append(f"Кандидат дал развернутый ответ по теме «{q_text}».")
+            else:
+                resolved.append("Кандидат дал развернутый ответ по одному из уточняющих вопросов.")
+            first = _first_sentence(answer, max_len=180)
+            if first:
+                new_info.append(first)
+        elif answer_len >= 60:
+            if q_text:
+                resolved.append(f"Получено частичное уточнение по теме «{q_text}».")
+            else:
+                resolved.append("Получено частичное уточнение по одному из вопросов.")
+            first = _first_sentence(answer, max_len=160)
+            if first:
+                new_info.append(first)
+            unresolved.append(
+                f"Ответ по теме «{q_text or 'уточняющий вопрос'}» требует большей конкретики."
+            )
+        else:
+            unresolved.append(
+                f"Ответ по теме «{q_text or 'уточняющий вопрос'}» слишком краткий, нужна дополнительная конкретика."
+            )
+
+    context = user_payload.get("interviewContext")
+    issue_candidates = []
+    if isinstance(context, dict) and isinstance(context.get("issue_candidates"), list):
+        issue_candidates = [x for x in context.get("issue_candidates") if isinstance(x, dict)]
+    for issue in issue_candidates[:8]:
+        summary = _short_text(str(issue.get("summary") or ""), max_len=180)
+        if not summary:
+            continue
+        severity = str(issue.get("severity") or "medium").lower()
+        if severity == "high":
+            follow_up.append(f"Проверить критичный момент: {summary}.")
+        elif severity == "medium":
+            follow_up.append(f"Уточнить важный момент: {summary}.")
+        else:
+            follow_up.append(f"При возможности уточнить: {summary}.")
+
+    resolved = _dedupe_non_empty(resolved, limit=8)
+    unresolved = _dedupe_non_empty(unresolved, limit=8)
+    new_info = _dedupe_non_empty(new_info, limit=8)
+    follow_up = _dedupe_non_empty(follow_up, limit=8)
+
+    if not follow_up:
+        follow_up = _derive_follow_up_from_unresolved(unresolved, limit=4)
+    if not follow_up and resolved:
+        follow_up = ["Проверить устойчивость и применимость озвученных примеров в реальных задачах обучения."]
+
+    total_q = len([r for r in rows if isinstance(r, dict)])
+    summary_parts: list[str] = []
+    if total_q > 0:
+        summary_parts.append(f"Кандидат завершил AI-собеседование и ответил на {total_q} вопросов.")
+    if resolved:
+        summary_parts.append(f"Удалось уточнить ключевые моменты: {resolved[0].rstrip('.')}.")
+    if unresolved:
+        summary_parts.append(f"Остаются вопросы для дополнительной проверки: {unresolved[0].rstrip('.')}.")
+    if follow_up:
+        summary_parts.append(f"На живом собеседовании стоит сфокусироваться на теме: {follow_up[0].rstrip('.')}.")
+    short_summary = " ".join(summary_parts).strip() or "Кандидат завершил AI-собеседование; требуется уточнение отдельных деталей на живой встрече."
+
+    if unresolved and len(unresolved) >= 2:
+        confidence: Literal["low", "medium", "high"] = "low"
+    elif unresolved:
+        confidence = "medium"
+    elif resolved:
+        confidence = "high"
+    else:
+        confidence = "medium"
+
+    now = datetime.now(tz=UTC)
+    return {
+        "shortSummary": short_summary[:_MAX_STRING_LEN],
+        "resolvedPoints": resolved,
+        "unresolvedPoints": unresolved,
+        "newInformation": new_info,
+        "followUpFocus": follow_up,
+        "confidence": confidence,
+        "generatedAt": now.isoformat(),
+        "promptVersion": RESOLUTION_SUMMARY_PROMPT_VERSION,
+        "generationSource": "fallback",
+    }
+
+
 def generate_resolution_summary_llm(
     user_payload: dict[str, Any], *, application_id: str | None = None
 ) -> dict[str, Any]:
@@ -142,6 +305,7 @@ def generate_resolution_summary_llm(
         f"Return a single JSON object with keys: shortSummary (string, 2–4 sentences), "
         f"resolvedPoints (array of short strings, max {_MAX_LIST_ITEMS} items), "
         f"unresolvedPoints (array, max {_MAX_LIST_ITEMS}), newInformation (array, max {_MAX_LIST_ITEMS}), "
+        f"followUpFocus (array with concrete follow-up topics for live interview, max {_MAX_LIST_ITEMS}), "
         "confidence (one of: low, medium, high)."
     )
     user_message = json.dumps(user_payload, ensure_ascii=False)[:80000]
@@ -167,9 +331,11 @@ def generate_resolution_summary_llm(
         "resolvedPoints": parsed.resolvedPoints,
         "unresolvedPoints": parsed.unresolvedPoints,
         "newInformation": parsed.newInformation,
+        "followUpFocus": parsed.followUpFocus or _derive_follow_up_from_unresolved(parsed.unresolvedPoints),
         "confidence": parsed.confidence,
         "generatedAt": now.isoformat(),
         "promptVersion": RESOLUTION_SUMMARY_PROMPT_VERSION,
+        "generationSource": "llm",
     }
     return out
 
@@ -179,7 +345,7 @@ def try_generate_and_persist_resolution_summary(
     application_id: UUID,
     row: AIInterviewQuestionSet,
 ) -> None:
-    """Best-effort generation; on failure sets resolution_summary_error and does not raise."""
+    """Best-effort generation; always persists usable summary via fallback when needed."""
     if row.resolution_summary is not None:
         logger.info(
             "resolution_summary: skip generation (already present) application_id=%s session_id=%s",
@@ -188,8 +354,8 @@ def try_generate_and_persist_resolution_summary(
         )
         return
 
+    payload = _build_user_payload(db, application_id, row)
     try:
-        payload = _build_user_payload(db, application_id, row)
         summary = generate_resolution_summary_llm(payload, application_id=str(application_id))
         row.resolution_summary = summary
         row.resolution_summary_error = None
@@ -221,5 +387,38 @@ def try_generate_and_persist_resolution_summary(
             safe,
             exc_info=True,
         )
+        fallback_summary = _build_fallback_resolution_summary(payload)
+        row.resolution_summary = fallback_summary
         row.resolution_summary_error = safe[:2000]
         db.flush()
+        audit_log_service.write_audit(
+            db,
+            entity_type="application",
+            entity_id=application_id,
+            action="ai_interview_resolution_summary_fallback_generated",
+            actor_user_id=None,
+            after_data={
+                "session_id": str(row.id),
+                "generated_at": fallback_summary.get("generatedAt"),
+                "source": "fallback",
+            },
+        )
+
+
+def ensure_resolution_summary_available(
+    db: Session,
+    *,
+    application_id: UUID,
+    row: AIInterviewQuestionSet | None = None,
+) -> AIInterviewQuestionSet | None:
+    """Backfill missing summary for completed interviews (non-raising best effort)."""
+    target = row or ai_interview_repository.get_question_set_for_application(db, application_id)
+    if not target:
+        return None
+    if target.candidate_completed_at is None:
+        return target
+    if isinstance(target.resolution_summary, dict):
+        return target
+    try_generate_and_persist_resolution_summary(db, application_id, target)
+    db.refresh(target)
+    return target

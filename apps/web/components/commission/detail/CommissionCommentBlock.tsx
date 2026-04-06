@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { createCommissionComment } from "@/lib/commission/query";
 import type { CommissionApplicationPersonalInfoView } from "@/lib/commission/types";
 
@@ -55,10 +54,11 @@ type Props = {
   comments: CommissionApplicationPersonalInfoView["comments"];
   canComment: boolean;
   embedded?: boolean;
+  /** После успешного POST — обновить данные родителя (например, перезапрос personal-info). */
+  onCommentSaved?: () => void | Promise<void>;
 };
 
-export function CommissionCommentBlock({ applicationId, comments, canComment, embedded }: Props) {
-  const router = useRouter();
+export function CommissionCommentBlock({ applicationId, comments, canComment, embedded, onCommentSaved }: Props) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -71,7 +71,7 @@ export function CommissionCommentBlock({ applicationId, comments, canComment, em
       try {
         await createCommissionComment(applicationId, body);
         setText("");
-        router.refresh();
+        await onCommentSaved?.();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Не удалось сохранить комментарий");
       }

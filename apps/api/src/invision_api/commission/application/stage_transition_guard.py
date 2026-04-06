@@ -170,7 +170,7 @@ def resolve_kanban_advance(db: Session, application_id: UUID) -> StageAdvanceRes
                 candidate_full_name=name,
                 target_stage_label_ru="Собеседование",
                 block_code=StageAdvanceBlockCode.STAGE_ONE_NOT_READY,
-                message="Заявка ещё не готова к переходу: требуется готовность данных и AI-сводки первого этапа.",
+                message="Заявка не готова к перехода. Необходимо оценить разделы кандидата",
                 primary_action=_primary_open(application_id),
             )
         if not kanban_border_hints.rubric_three_sections_complete(db, application_id):

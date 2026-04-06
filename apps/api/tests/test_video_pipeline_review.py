@@ -122,9 +122,9 @@ def test_pipeline_visibility_true_when_face_found_on_single_frame(monkeypatch, t
     assert out.codec_audio == "aac"
     assert out.container == "mov,mp4,m4a,3gp,3g2,mj2"
     assert out.candidate_visible is True
-    # Summary should be capped to <= 6 sentences.
+    # Summary should be normalized to strict 7-8 sentences.
     sentences = [s for s in re.split(r"(?<=[.!?])\s+", out.commission_summary.strip()) if s]
-    assert len(sentences) <= 6
+    assert 7 <= len(sentences) <= 8
 
 
 def test_pipeline_no_transcript_returns_no_text(monkeypatch, tmp_path) -> None:
@@ -312,9 +312,16 @@ def test_pipeline_summary_provider_failure_uses_extractive_fallback(monkeypatch,
     monkeypatch.setattr(
         "invision_api.services.video_processing.pipeline.transcribe_audio_wav",
         lambda _wav: (
-            "Я начал делать проект сам. Потом собрал команду и распределил роли. "
-            "Мы столкнулись с проблемами и я довёл задачу до конца. "
-            "Я понял, как лучше планировать работу и учиться на ошибках.",
+            "Я самостоятельно начал проект и составил план работ. "
+            "Потом собрал команду и распределил роли между участниками. "
+            "На старте не хватало ресурсов, поэтому мы пересобрали подход. "
+            "Я взял на себя коммуникацию с партнёрами и отчётность. "
+            "Команда довела пилот до рабочего прототипа за два месяца. "
+            "После тестирования мы исправили ошибки и улучшили интерфейс. "
+            "По итогам запуска получили первых пользователей и обратную связь. "
+            "Я сделал выводы по управлению временем и рисками. "
+            "Также пересмотрел приоритеты и улучшил процесс планирования. "
+            "Сейчас масштабируем проект и готовим следующую версию.",
             None,
         ),
     )
@@ -327,7 +334,7 @@ def test_pipeline_summary_provider_failure_uses_extractive_fallback(monkeypatch,
     sentences = [s for s in re.split(r"(?<=[.!?])\s+", out.commission_summary.strip()) if s]
     assert out.media_status == "ready"
     assert out.commission_summary != "Текст не обнаружен"
-    assert 1 <= len(sentences) <= 3
+    assert 7 <= len(sentences) <= 8
     assert any("суммаризация недоступна" in w.lower() for w in out.warnings)
 
 
@@ -368,6 +375,10 @@ def test_pipeline_youtube_captions_fallback_on_asr_failure(monkeypatch, tmp_path
             source="auto",
             text="Кандидат рассказывает о проекте и своём опыте в команде. Он описывает результат и выводы.",
         ),
+    )
+    monkeypatch.setattr(
+        "invision_api.services.video_processing.pipeline.summarize_transcript_ru",
+        lambda _raw: "Раз. Два. Три. Четыре. Пять. Шесть. Семь. Восемь.",
     )
 
     out = run_presentation_pipeline("https://youtube.com/watch?v=abc")

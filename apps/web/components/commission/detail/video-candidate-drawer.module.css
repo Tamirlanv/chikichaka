@@ -213,6 +213,16 @@
   gap: 8px;
 }
 
+.videoDrawerSavedBy {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  letter-spacing: -0.42px;
+  font-weight: 350;
+  color: #626262;
+  word-break: break-all;
+}
+
 .videoDrawerPrimaryBtn,
 .videoDrawerSecondaryBtn {
   border-radius: 8px;

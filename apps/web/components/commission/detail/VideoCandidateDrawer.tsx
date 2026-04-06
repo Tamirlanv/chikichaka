@@ -12,11 +12,14 @@ type Props = {
   notes: string[];
   preview: VideoPreviewMeta;
   recommendedScore: number | null;
+  /** Единая сохранённая комиссией оценка по разделу (если все подкритерии выставлены). */
   currentScore: number | null;
   canEditScore: boolean;
   scoreLoading: boolean;
   scoreSaving: boolean;
   onSaveScore: (score: number) => Promise<void>;
+  /** Email участника комиссии, сохранившего оценку (текущая сессия после сохранения). */
+  savedByEmail?: string | null;
 };
 
 const SCORE_TRACK = "#f1f1f1";
@@ -35,11 +38,13 @@ export function VideoCandidateDrawer({
   scoreLoading,
   scoreSaving,
   onSaveScore,
+  savedByEmail = null,
 }: Props) {
   const ANIMATION_MS = 220;
   const [isMounted, setIsMounted] = useState(open);
   const baselineScore = useMemo(() => currentScore ?? recommendedScore ?? 3, [currentScore, recommendedScore]);
   const [selectedScore, setSelectedScore] = useState<number>(baselineScore);
+  const hasSavedCommissionScore = currentScore !== null;
   const fallbackText = "Не удалось обработать данные";
   const durationText = duration?.trim() ? duration : fallbackText;
   const platformText = preview.platformLabel?.trim() && preview.platformLabel !== "Не определена"
@@ -73,9 +78,11 @@ export function VideoCandidateDrawer({
 
   if (!isMounted) return null;
 
-  const hasChanges = selectedScore !== baselineScore;
   const isEditEnabled = canEditScore && !scoreLoading;
-  const canSubmit = isEditEnabled && !scoreSaving && hasChanges;
+  /** Пока комиссия не сохранила оценку — можно нажать «Установить», в том числе согласившись с рекомендацией (без сдвига ползунка). */
+  const needsSubmit =
+    !hasSavedCommissionScore || selectedScore !== currentScore;
+  const canSubmit = isEditEnabled && !scoreSaving && needsSubmit;
   const overlayClassName = `${styles.videoDrawerOverlay} ${
     open ? styles.videoDrawerOverlayOpen : styles.videoDrawerOverlayClosed
   }`;
@@ -164,7 +171,13 @@ export function VideoCandidateDrawer({
           <p className={styles.videoDrawerMetaLine}>
             <span>Рекомендуемая оценка:</span> <span>{recommendedScore ?? "–"}</span>
           </p>
-          <p className={styles.videoDrawerMutedText}>Установите итоговую оценку по данному разделу</p>
+          <p className={styles.videoDrawerMutedText}>
+            Рекомендация носит ориентировочный характер; итог выставляет комиссия (можно оставить ту же цифру и
+            нажать «Установить»).
+          </p>
+          <p className={styles.videoDrawerMutedText} style={{ marginTop: 8 }}>
+            Ваша оценка по разделу:
+          </p>
 
           <div className={styles.videoDrawerScoreDots} role="radiogroup" aria-label="Оценка видео">
             {Array.from({ length: 5 }, (_, index) => {
@@ -193,22 +206,29 @@ export function VideoCandidateDrawer({
                 onClick={() => void onSaveScore(selectedScore)}
                 disabled={!canSubmit}
               >
-                {scoreSaving ? "Сохранение..." : "Установить"}
+                {scoreSaving
+                  ? "Сохранение..."
+                  : hasSavedCommissionScore && !needsSubmit
+                    ? `Установлено: ${currentScore}`
+                    : "Установить"}
               </button>
               <button
                 type="button"
                 className={styles.videoDrawerSecondaryBtn}
-                onClick={() => setSelectedScore(baselineScore)}
-                disabled={scoreSaving || !hasChanges}
+                onClick={onClose}
+                disabled={scoreSaving}
               >
                 Отмена
               </button>
+              {hasSavedCommissionScore && !needsSubmit && savedByEmail ? (
+                <p className={styles.videoDrawerSavedBy}>{savedByEmail}</p>
+              ) : null}
             </div>
           ) : scoreLoading ? (
             <p className={styles.videoDrawerMutedText}>Загрузка оценок...</p>
           ) : (
             <p className={styles.videoDrawerMutedText}>
-              Оценка в этом разделе доступна после перехода на этап «Оценка заявки».
+              Итоговую оценку по видео выставляет комиссия на этапе «Оценка заявки» (роль с правом оценки).
             </p>
           )}
         </section>

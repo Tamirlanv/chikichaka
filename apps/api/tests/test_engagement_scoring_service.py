@@ -32,6 +32,15 @@ def test_last_online_bucket_boundaries() -> None:
     assert engagement_scoring_service._last_online_bucket(now - timedelta(days=5), now=now) == "poor"
 
 
+def test_speed_signal_table_boundaries() -> None:
+    reg = datetime(2026, 4, 1, 10, 0, tzinfo=UTC)
+
+    assert engagement_scoring_service._resolve_speed_signal(reg + timedelta(minutes=10), reg) == ("слишком быстро", False)
+    assert engagement_scoring_service._resolve_speed_signal(reg + timedelta(minutes=31), reg) == ("умеренно быстро", False)
+    assert engagement_scoring_service._resolve_speed_signal(reg + timedelta(hours=5), reg) == ("быстро", False)
+    assert engagement_scoring_service._resolve_speed_signal(reg + timedelta(hours=26), reg) == ("умеренно быстро", True)
+
+
 def test_list_commission_engagement_only_active_stages(db: Session, factory) -> None:
     user = factory.user(db, email="engagement-candidate@example.com")
     profile = factory.profile(db, user, first_name="Алия", last_name="Тестова")

@@ -139,6 +139,12 @@ export function AIInterviewPanel({
 
   const validCount = edited?.filter((q) => displayText(q)).length ?? 0;
   const isDraft = draft?.status === "draft";
+  const generationSource = (draft?.generationSource ?? "").toLowerCase();
+  const sourceLabel = generationSource === "llm" ? "LLM" : generationSource ? "Контекстный fallback" : null;
+  const fallbackHint =
+    sourceLabel === "Контекстный fallback"
+      ? "Черновик собран резервным способом на основе сигналов заявки."
+      : null;
 
   if (!isActive) return null;
 
@@ -179,10 +185,19 @@ export function AIInterviewPanel({
       ) : (
         <>
           {!draft && !loading ? (
-            <p style={{ margin: 0, fontSize: 14, color: "#626262" }}>Черновик ещё не создан. Нажмите «Перегенерировать» или сгенерируйте вопросы.</p>
+            <p style={{ margin: 0, fontSize: 14, color: "#626262" }}>
+              Черновик ещё не создан. Нажмите «Перегенерировать», чтобы собрать вопросы.
+            </p>
           ) : null}
           {draft && draft.status === "approved" ? (
             <p style={{ margin: 0, fontSize: 14, color: "#2e7d32" }}>Набор одобрён.</p>
+          ) : null}
+          {draft && sourceLabel ? (
+            <p style={{ margin: 0, fontSize: 13, color: "#626262" }}>
+              Источник: {sourceLabel}
+              {typeof draft.issueCount === "number" ? ` · Сигналов к уточнению: ${draft.issueCount}` : ""}
+              {fallbackHint ? ` · ${fallbackHint}` : ""}
+            </p>
           ) : null}
 
           {edited && edited.length > 0 ? (
@@ -235,7 +250,7 @@ export function AIInterviewPanel({
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
             {canGenerate ? (
               <button type="button" className="btn secondary" disabled={pending} onClick={() => void handleGenerate()}>
-                {draft?.status === "draft" ? "Перегенерировать" : "Сгенерировать вопросы"}
+                Перегенерировать
               </button>
             ) : null}
             {canGenerate && edited && isDraft ? (

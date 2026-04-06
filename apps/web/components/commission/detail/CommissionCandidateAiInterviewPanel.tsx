@@ -137,6 +137,11 @@ export function CommissionCandidateAiInterviewPanel({ applicationId, isActive }:
           </p>
         </div>
       ) : null}
+      {!data.resolutionSummary && !data.resolutionSummaryError ? (
+        <p style={{ margin: "0 0 16px", fontSize: 14, fontWeight: regularWeight, color: "#626262" }}>
+          Сводка формируется. Обновите страницу через несколько секунд.
+        </p>
+      ) : null}
 
       {data.resolutionSummary ? (
         <div style={{ display: "grid", gap: 16, marginBottom: 24 }}>
@@ -178,6 +183,26 @@ export function CommissionCandidateAiInterviewPanel({ applicationId, isActive }:
               <ul style={{ margin: 0, paddingLeft: 20, color: "#262626", fontWeight: regularWeight, lineHeight: 1.4 }}>
                 {data.resolutionSummary.newInformation.map((line, i) => (
                   <li key={`n-${i}`}>{line}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div>
+            <p style={{ ...labelStyle, marginBottom: 4 }}>На что обратить внимание на живом собеседовании</p>
+            {(data.resolutionSummary.followUpFocus ?? []).length === 0 ? (
+              data.resolutionSummary.unresolvedPoints.length === 0 ? (
+                <p style={{ ...labelStyle, margin: 0 }}>—</p>
+              ) : (
+                <ul style={{ margin: 0, paddingLeft: 20, color: "#262626", fontWeight: regularWeight, lineHeight: 1.4 }}>
+                  {data.resolutionSummary.unresolvedPoints.slice(0, 4).map((line, i) => (
+                    <li key={`f-der-${i}`}>Уточнить: {line}</li>
+                  ))}
+                </ul>
+              )
+            ) : (
+              <ul style={{ margin: 0, paddingLeft: 20, color: "#262626", fontWeight: regularWeight, lineHeight: 1.4 }}>
+                {(data.resolutionSummary.followUpFocus ?? []).map((line, i) => (
+                  <li key={`f-${i}`}>{line}</li>
                 ))}
               </ul>
             )}

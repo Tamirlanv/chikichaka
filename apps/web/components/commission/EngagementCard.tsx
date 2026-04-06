@@ -51,7 +51,7 @@ export function EngagementCard({ card }: Props) {
       }}
     >
       <Link
-        href={`/commission/applications/${card.applicationId}`}
+        href={`/commission/applications/${card.applicationId}?sidebar=engagement`}
         style={{
           fontSize: 16,
           fontWeight: 450,

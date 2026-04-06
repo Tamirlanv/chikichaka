@@ -340,6 +340,118 @@ def test_generate_requires_data_ready_when_configured(monkeypatch, db: Session, 
     assert exc.value.status_code == 409
 
 
+def test_generate_ai_interview_draft_exposes_generation_explainability(monkeypatch, db: Session, factory) -> None:
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile, state=ApplicationState.submitted.value)
+    app.current_stage = ApplicationStage.application_review.value
+    app.state = ApplicationState.under_review.value
+    db.flush()
+
+    monkeypatch.setattr(
+        "invision_api.services.ai_interview.service.build_interview_context",
+        lambda _db, _application_id: {
+            "application_id": str(app.id),
+            "section_keys": ["motivation_goals", "growth_journey"],
+            "sections_compact": {},
+            "signals": {},
+            "review_snapshot": {},
+            "data_check": {},
+            "ai_review": {},
+            "issue_candidates": [
+                {
+                    "id": "issue_1",
+                    "reasonType": "missing_context",
+                    "summary": "Недостаточно деталей по личной роли в проекте.",
+                    "severity": "medium",
+                    "sourceSections": ["achievements_activities"],
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        "invision_api.services.ai_interview.service.generate_questions_llm",
+        lambda **_: (
+            [
+                {
+                    "id": "q1",
+                    "questionText": "Уточните, какую роль вы выполняли лично?",
+                    "reasonType": "missing_context",
+                    "reasonDescription": "Нужна конкретика личного вклада.",
+                    "sourceSections": ["achievements_activities"],
+                    "severity": "medium",
+                    "sortOrder": 0,
+                },
+                {
+                    "id": "q2",
+                    "questionText": "Какой результат вы получили?",
+                    "reasonType": "missing_context",
+                    "reasonDescription": "Нужны подтвержденные результаты.",
+                    "sourceSections": ["achievements_activities"],
+                    "severity": "medium",
+                    "sortOrder": 1,
+                },
+                {
+                    "id": "q3",
+                    "questionText": "Что бы вы сделали иначе?",
+                    "reasonType": "strong_signal_clarification",
+                    "reasonDescription": "Проверка рефлексии по опыту.",
+                    "sourceSections": ["growth_journey"],
+                    "severity": "low",
+                    "sortOrder": 2,
+                },
+            ],
+            {"path": "fallback_contextual", "degraded": True, "reason": "llm_error"},
+        ),
+    )
+
+    out = ai_interview_service.generate_ai_interview_draft(db, app.id, actor_user_id=user.id)
+    assert out.get("generationSource") == "fallback_contextual"
+    assert out.get("fallbackReason") == "llm_error"
+    assert out.get("issueCount") == 1
+    gfs = out.get("generatedFromSignals") or {}
+    assert gfs.get("generation_source") == "fallback_contextual"
+    assert gfs.get("fallback_reason") == "llm_error"
+    assert gfs.get("issue_count") == 1
+    assert gfs.get("context_hash")
+
+
+def test_ensure_ai_interview_draft_best_effort_skips_existing(monkeypatch, db: Session, factory) -> None:
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile, state=ApplicationState.submitted.value)
+    app.current_stage = ApplicationStage.application_review.value
+    app.state = ApplicationState.under_review.value
+    db.flush()
+    ai_interview_repository.upsert_draft(
+        db,
+        application_id=app.id,
+        questions=[{"id": "q1", "questionText": "A?", "sortOrder": 0}],
+        generated_from_signals={"generation_source": "llm"},
+    )
+
+    called = {"value": False}
+
+    def _should_not_call(*args, **kwargs):
+        called["value"] = True
+        raise AssertionError("generate_ai_interview_draft must not be called when draft exists")
+
+    monkeypatch.setattr(
+        "invision_api.services.ai_interview.service.generate_ai_interview_draft",
+        _should_not_call,
+    )
+
+    out = ai_interview_service.ensure_ai_interview_draft_best_effort(
+        db,
+        app.id,
+        actor_user_id=user.id,
+        trigger="test",
+    )
+    assert called["value"] is False
+    assert out is not None
+    assert out.get("status") == "draft"
+
+
 def test_patch_draft_audit_includes_changed_question_ids(monkeypatch, db: Session, factory) -> None:
     captured: list[dict] = []
 
@@ -595,6 +707,7 @@ def test_resolution_summary_persisted_and_read_models(mock_llm, db: Session, fac
         "resolvedPoints": ["п.1"],
         "unresolvedPoints": ["п.2"],
         "newInformation": ["п.3"],
+        "followUpFocus": ["Уточнить п.2 на живом собеседовании."],
         "confidence": "high",
         "generatedAt": datetime.now(tz=UTC).isoformat(),
         "promptVersion": "resolution_summary_v1",
@@ -643,6 +756,7 @@ def test_resolution_summary_persisted_and_read_models(mock_llm, db: Session, fac
     titles = [s["title"] for s in panel["sections"]]
     assert "Краткий итог" in titles
     assert "Что удалось уточнить" in titles
+    assert "На что обратить внимание на живом собеседовании" in titles
 
 
 @patch("invision_api.services.ai_interview.resolution_summary.generate_resolution_summary_llm")
@@ -681,11 +795,56 @@ def test_complete_succeeds_when_resolution_llm_fails(mock_llm, db: Session, fact
     out = ai_interview_service.complete_candidate_ai_interview(db, app.id)
     assert out.get("alreadyCompleted") is False
     db.refresh(row)
-    assert row.resolution_summary is None
+    assert isinstance(row.resolution_summary, dict)
+    assert (row.resolution_summary or {}).get("generationSource") == "fallback"
+    assert (row.resolution_summary or {}).get("shortSummary")
     err = (row.resolution_summary_error or "").strip()
     assert err
     assert "llm_down" not in err.lower()
     assert "администратору" in err.lower() or "позже" in err.lower()
+
+
+@patch("invision_api.services.ai_interview.resolution_summary.generate_resolution_summary_llm")
+def test_commission_view_backfills_missing_resolution_summary(mock_llm, db: Session, factory) -> None:
+    mock_llm.return_value = {
+        "shortSummary": "Backfill summary.",
+        "resolvedPoints": ["r1"],
+        "unresolvedPoints": ["u1"],
+        "newInformation": ["n1"],
+        "followUpFocus": ["f1"],
+        "confidence": "medium",
+        "generatedAt": datetime.now(tz=UTC).isoformat(),
+        "promptVersion": "resolution_summary_v1",
+    }
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile, state=ApplicationState.submitted.value)
+    app.current_stage = ApplicationStage.interview.value
+    app.state = ApplicationState.interview_pending.value
+    db.flush()
+
+    questions = [
+        {"id": "q1", "questionText": "Один?", "sortOrder": 0},
+        {"id": "q2", "questionText": "Два?", "sortOrder": 1},
+        {"id": "q3", "questionText": "Три?", "sortOrder": 2},
+    ]
+    row = ai_interview_repository.upsert_draft(
+        db,
+        application_id=app.id,
+        questions=questions,
+        generated_from_signals=None,
+    )
+    ai_interview_repository.mark_approved(db, row, approved_by_user_id=user.id)
+    row.candidate_completed_at = datetime.now(tz=UTC)
+    row.resolution_summary = None
+    row.resolution_summary_error = None
+    db.flush()
+
+    view = ai_interview_service.build_commission_ai_interview_session_view(db, app.id)
+    assert view["resolutionSummary"] is not None
+    assert view["resolutionSummary"]["shortSummary"] == "Backfill summary."
+    db.refresh(row)
+    assert isinstance(row.resolution_summary, dict)
 
 
 def test_interview_preferences_blocked_until_ai_interview_completed(db: Session, factory) -> None:

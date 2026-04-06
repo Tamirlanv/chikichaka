@@ -90,6 +90,35 @@
   line-height: 20px;
 }
 
+.sidebarTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.infoIconButton {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid #d7d7d7;
+  background: #fff;
+  color: #626262;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 450;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.infoIconButton:hover {
+  border-color: #bdbdbd;
+  color: #262626;
+}
+
 /* AI card — row key (Тест / О кандидате / Слабые места) */
 .aiLabel {
   margin: 0;

@@ -388,6 +388,9 @@ export type AiInterviewDraftView = {
   revision: number;
   questions: AiInterviewDraftQuestion[];
   generatedFromSignals?: Record<string, unknown> | null;
+  generationSource?: string | null;
+  fallbackReason?: string | null;
+  issueCount?: number | null;
   generatedAt: string | null;
   approvedAt: string | null;
   approvedByUserId: string | null;
@@ -480,9 +483,11 @@ export type CommissionAiInterviewResolutionSummary = {
   resolvedPoints: string[];
   unresolvedPoints: string[];
   newInformation: string[];
+  followUpFocus?: string[];
   confidence: "low" | "medium" | "high";
   generatedAt: string;
   promptVersion?: string;
+  generationSource?: "llm" | "fallback" | string;
 };
 
 export type CommissionCandidatePreferencePanel = {

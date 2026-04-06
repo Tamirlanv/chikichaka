@@ -5,7 +5,13 @@ vi.mock("../api-client", () => ({
 }));
 
 import { apiFetch } from "../api-client";
-import { createCommissionComment, getCommissionApplicationPersonalInfo, mapApiCard, rangeFromQuery } from "./query";
+import {
+  createCommissionComment,
+  getCommissionApplicationPersonalInfo,
+  getCommissionSidebarPanel,
+  mapApiCard,
+  rangeFromQuery,
+} from "./query";
 
 const apiFetchMock = vi.mocked(apiFetch);
 
@@ -46,5 +52,10 @@ describe("commission query", () => {
       json: { body: "note" },
     });
   });
-});
 
+  it("maps engagement sidebar tab to engagement endpoint query", async () => {
+    apiFetchMock.mockResolvedValue({ type: "summary", title: "Вовлеченность", sections: [] } as never);
+    await getCommissionSidebarPanel("abc", "engagement");
+    expect(apiFetchMock).toHaveBeenCalledWith("/commission/applications/abc/sidebar?tab=engagement");
+  });
+});

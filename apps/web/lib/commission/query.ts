@@ -514,7 +514,11 @@ export async function getCommissionSidebarPanel(
   tab: string,
 ): Promise<CommissionSidebarPanelView> {
   const queryTab =
-    tab === "ai_interview" ? "ai_interview" : (_TAB_TO_QUERY[tab] ?? "personal");
+    tab === "ai_interview"
+      ? "ai_interview"
+      : tab === "engagement"
+        ? "engagement"
+        : (_TAB_TO_QUERY[tab] ?? "personal");
   return await apiFetch<CommissionSidebarPanelView>(
     `/commission/applications/${applicationId}/sidebar?tab=${encodeURIComponent(queryTab)}`,
   );

@@ -21,16 +21,20 @@ def build_ai_interview_questions_openai_messages(
     """Exact (system, user) strings passed to committee_structured_summary for question generation."""
     system = (
         "You generate clarification interview questions for university admissions (Russian). "
-        "Questions must be tied to THIS applicant's materials only. "
+        "Questions must be tied to THIS applicant's materials only and must be issue-driven. "
+        "Primary source is context.issue_candidates (contradictions, weak points, missing context). "
+        "Never produce generic questions detached from issue_candidates when issue_candidates is non-empty. "
         "Each question MUST reference at least one section key from context.section_keys or context.sections_compact "
         "in the sourceSections array (use exact keys as listed). "
+        "Distribute questions across different issue_candidates; avoid duplicates. "
         "Tone: neutral, respectful, not accusatory. Never say 'explain the contradiction'. "
         "Ask for concrete examples, role, decisions, consistency. "
         "Do not include internal pipeline field names, JSON keys, or debugging labels in questionText. "
         f"Return exactly {target_count} questions as JSON object with key 'questions' — array of objects: "
         "questionText (ru), reasonType (one of: contradiction, low_concreteness, authenticity_check, "
         "missing_context, strong_signal_clarification), reasonDescription (ru, short), "
-        "sourceSections (array of section keys from context), severity (low|medium|high)."
+        "sourceSections (array of section keys from context), severity (low|medium|high), "
+        "issueId (optional string, id from context.issue_candidates when applicable)."
     )
     user = json.dumps({"targetCount": target_count, "context": context}, ensure_ascii=False)[:80000]
     return system, user
@@ -101,6 +105,9 @@ def _normalize_question(raw: dict[str, Any], idx: int) -> dict[str, Any]:
         "isApproved": False,
         "sortOrder": idx,
     }
+    issue_id = str(raw.get("issueId") or "").strip()
+    if issue_id:
+        out["issueId"] = issue_id[:64]
     if sanitized_leak:
         out["_questionTextSanitized"] = True
     return out
@@ -126,10 +133,19 @@ def generate_questions_llm(
     """Returns (questions, meta) where meta includes path and degraded flag."""
     meta: dict[str, Any] = {"path": "llm", "degraded": False}
     settings = get_settings()
-    if not settings.openai_api_key:
+    api_key = (settings.openai_api_key or "").strip()
+    key_lc = api_key.lower()
+    placeholder_key = api_key.startswith("sk-test") or "test-fake" in key_lc or key_lc in {"fake", "none", "null"}
+    if not api_key:
         logger.info("ai_interview: using fallback (no OPENAI_API_KEY)")
         qs = _fallback_questions(context, target_count)
-        meta = {"path": "fallback", "degraded": True, "reason": "no_openai_key"}
+        meta = {"path": "fallback_contextual", "degraded": True, "reason": "no_openai_key"}
+        _ensure_source_sections_linked(context, qs)
+        return qs, meta
+    if placeholder_key:
+        logger.info("ai_interview: using fallback (test/fake OPENAI key)")
+        qs = _fallback_questions(context, target_count)
+        meta = {"path": "fallback_contextual", "degraded": True, "reason": "openai_test_key"}
         _ensure_source_sections_linked(context, qs)
         return qs, meta
 
@@ -138,7 +154,7 @@ def generate_questions_llm(
     except RuntimeError as e:
         logger.warning("ai_interview: OpenAI provider init failed: %s", e)
         qs = _fallback_questions(context, target_count)
-        meta = {"path": "fallback", "degraded": True, "reason": "openai_init_failed"}
+        meta = {"path": "fallback_contextual", "degraded": True, "reason": "openai_init_failed"}
         _ensure_source_sections_linked(context, qs)
         return qs, meta
 
@@ -156,7 +172,7 @@ def generate_questions_llm(
     except Exception as e:
         logger.warning("ai_interview: LLM call failed, using fallback: %s", e)
         qs = _fallback_questions(context, target_count)
-        meta = {"path": "fallback", "degraded": True, "reason": "llm_error", "error": str(e)[:200]}
+        meta = {"path": "fallback_contextual", "degraded": True, "reason": "llm_error", "error": str(e)[:200]}
         _ensure_source_sections_linked(context, qs)
         return qs, meta
 
@@ -168,7 +184,12 @@ def generate_questions_llm(
     if not isinstance(raw_list, list) or not raw_list:
         logger.info("ai_interview: empty LLM questions, fallback")
         qs = _fallback_questions(context, target_count)
-        meta = {"path": "fallback", "degraded": True, "reason": "empty_llm_response", "llm_latency_ms": elapsed_ms}
+        meta = {
+            "path": "fallback_contextual",
+            "degraded": True,
+            "reason": "empty_llm_response",
+            "llm_latency_ms": elapsed_ms,
+        }
         _ensure_source_sections_linked(context, qs)
         return qs, meta
 
@@ -184,70 +205,111 @@ def generate_questions_llm(
 
 
 def _fallback_questions(context: dict[str, Any], n: int) -> list[dict[str, Any]]:
-    """Deterministic placeholders when LLM unavailable."""
-    signals = context.get("signals") or {}
-    flags = signals.get("attention_flags") or []
-    base = [
-        {
-            "questionText": "Расскажите конкретный пример, когда вы взяли на себя инициативу в учебе или проекте: что именно сделали лично вы и какой был результат?",
-            "reasonType": "strong_signal_clarification",
-            "reasonDescription": "Нужна конкретика личного вклада.",
-            "sourceSections": ["achievements_activities", "leadership_evidence"],
-            "severity": "medium",
-        },
-        {
-            "questionText": "Как вы связаны описанные в мотивации цели с тем опытом, который вы привели в разделе достижений?",
-            "reasonType": "contradiction",
-            "reasonDescription": "Проверка согласованности разделов.",
-            "sourceSections": ["motivation_letter", "achievements_activities"],
-            "severity": "medium",
-        },
-        {
-            "questionText": "Что для вас было самым сложным на пути к этой заявке и как вы с этим справились?",
-            "reasonType": "missing_context",
-            "reasonDescription": "Контекст трудностей и реакции.",
-            "sourceSections": ["growth_journey"],
-            "severity": "low",
-        },
-        {
-            "questionText": "Если бы нужно было коротко описать вашу роль в командном проекте, о котором вы писали, что бы это было?",
-            "reasonType": "low_concreteness",
-            "reasonDescription": "Уточнение роли в команде.",
-            "sourceSections": ["achievements_activities"],
-            "severity": "low",
-        },
-        {
-            "questionText": "Почему вы сейчас выбираете именно эту программу и какой следующий шаг планируете в ближайший год?",
-            "reasonType": "missing_context",
-            "reasonDescription": "Связь целей и планов.",
-            "sourceSections": ["motivation_goals", "motivation_letter"],
-            "severity": "low",
-        },
-    ]
-    if flags:
-        base[0]["reasonDescription"] = f"Сигналы внимания: {len(flags)}."
-    out = []
-    for i in range(min(n, len(base))):
-        q = {
-            **base[i],
-            "id": str(uuid.uuid4()),
-            "generatedBy": "system_fallback",
-            "isEditedByCommission": False,
-            "isApproved": False,
-            "sortOrder": i,
-        }
-        out.append(_normalize_question(q, i))
-    while len(out) < n:
+    """Context-aware fallback when LLM unavailable."""
+    raw_issues = context.get("issue_candidates")
+    issues: list[dict[str, Any]] = []
+    if isinstance(raw_issues, list):
+        for raw in raw_issues:
+            if not isinstance(raw, dict):
+                continue
+            summary = str(raw.get("summary") or "").strip()
+            if not summary:
+                continue
+            issues.append(
+                {
+                    "id": str(raw.get("id") or f"issue_{len(issues) + 1}"),
+                    "summary": summary[:220],
+                    "reasonType": str(raw.get("reasonType") or "missing_context"),
+                    "severity": str(raw.get("severity") or "medium"),
+                    "sourceSections": [str(s) for s in list(raw.get("sourceSections") or [])[:4]],
+                }
+            )
+
+    if not issues:
+        section_keys = [str(k) for k in list(context.get("section_keys") or []) if str(k).strip()]
+        for i, key in enumerate(section_keys[:8]):
+            issues.append(
+                {
+                    "id": f"section_{i + 1}",
+                    "summary": f"Нужно уточнить фактические детали по разделу «{key}».",
+                    "reasonType": "missing_context",
+                    "severity": "medium",
+                    "sourceSections": [key],
+                }
+            )
+
+    if not issues:
+        issues = [
+            {
+                "id": "generic_1",
+                "summary": "Нужно уточнить фактические детали заявки и личный вклад кандидата.",
+                "reasonType": "missing_context",
+                "severity": "medium",
+                "sourceSections": [],
+            }
+        ]
+
+    def build_text(issue: dict[str, Any], idx: int) -> tuple[str, str]:
+        summary = str(issue.get("summary") or "Нужно уточнение").strip().rstrip(".")
+        reason_type = str(issue.get("reasonType") or "missing_context")
+        if reason_type == "contradiction":
+            text = f"В материалах видно возможное расхождение: {summary}. Уточните, как это согласуется между разделами заявки."
+            reason = "Проверка согласованности фактов и формулировок."
+        elif reason_type == "authenticity_check":
+            text = f"Уточните фактические детали по пункту: {summary}. Приведите конкретные подтверждающие примеры и вашу личную роль."
+            reason = "Проверка достоверности и конкретности заявленных фактов."
+        elif reason_type == "low_concreteness":
+            text = f"В ответах не хватает конкретики по теме: {summary}. Опишите один конкретный кейс: ваши действия, результат и вывод."
+            reason = "Уточнение конкретного действия и результата."
+        elif reason_type == "strong_signal_clarification":
+            text = f"Вы заявляете сильный сигнал по теме: {summary}. Раскройте его на примере: что сделали лично вы и как измерили результат."
+            reason = "Подтверждение сильного сигнала фактическим примером."
+        else:
+            text = f"Раскройте подробнее тему: {summary}. Что именно произошло, какие решения вы приняли и к чему это привело?"
+            reason = "Нужно добрать контекст по материалам заявки."
+        return text[:2000], reason
+
+    out: list[dict[str, Any]] = []
+    used_issue_ids: set[str] = set()
+    cursor = 0
+    while len(out) < n and cursor < len(issues):
+        issue = issues[cursor]
+        cursor += 1
+        issue_id = str(issue.get("id") or "")
+        if issue_id in used_issue_ids:
+            continue
+        used_issue_ids.add(issue_id)
+        text, reason = build_text(issue, len(out))
         out.append(
             _normalize_question(
                 {
                     "id": str(uuid.uuid4()),
-                    "questionText": "Что вы хотели бы добавить к заявке, чего комиссия пока не видит в материалах?",
-                    "reasonType": "missing_context",
-                    "reasonDescription": "Дополнительный контекст.",
-                    "sourceSections": [],
-                    "severity": "low",
-                    "generatedBy": "system_fallback",
+                    "issueId": issue_id,
+                    "questionText": text,
+                    "reasonType": issue.get("reasonType") or "missing_context",
+                    "reasonDescription": reason,
+                    "sourceSections": issue.get("sourceSections") or [],
+                    "severity": issue.get("severity") or "medium",
+                    "generatedBy": "system_fallback_contextual",
+                },
+                len(out),
+            )
+        )
+
+    while len(out) < n:
+        issue = issues[len(out) % len(issues)]
+        text, reason = build_text(issue, len(out))
+        out.append(
+            _normalize_question(
+                {
+                    "id": str(uuid.uuid4()),
+                    "issueId": issue.get("id"),
+                    "questionText": text,
+                    "reasonType": issue.get("reasonType") or "missing_context",
+                    "reasonDescription": reason,
+                    "sourceSections": issue.get("sourceSections") or [],
+                    "severity": issue.get("severity") or "medium",
+                    "generatedBy": "system_fallback_contextual",
                 },
                 len(out),
             )

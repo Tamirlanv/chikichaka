@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
+import logging
 from uuid import UUID
 
 from sqlalchemy import select
@@ -12,6 +13,8 @@ from invision_api.core.config import get_settings
 from invision_api.models.application import Application, ApplicationStageHistory
 from invision_api.models.enums import ApplicationStage, ApplicationState
 from invision_api.services import audit_log_service
+
+logger = logging.getLogger(__name__)
 
 
 class TransitionName(str, Enum):
@@ -95,6 +98,24 @@ def apply_transition(db: Session, app: Application, ctx: TransitionContext) -> A
                 candidate_visible_note=ctx.candidate_visible_note or "Первичная проверка пройдена.",
                 internal_note=ctx.internal_note,
             )
+            try:
+                from invision_api.services.ai_interview.service import (
+                    ensure_ai_interview_draft_best_effort,
+                )
+
+                ensure_ai_interview_draft_best_effort(
+                    db,
+                    app.id,
+                    actor_user_id=ctx.actor_user_id,
+                    trigger="entered_application_review",
+                )
+            except Exception:
+                # Best-effort only: never block the stage transition.
+                logger.exception(
+                    "ai_interview auto-draft trigger failed application=%s transition=%s",
+                    app.id,
+                    ctx.transition.value,
+                )
         case TransitionName.revision_required:
             prev_stage = app.current_stage
             _close_open_history(db, app.id, now)

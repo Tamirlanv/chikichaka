@@ -1,6 +1,6 @@
 /**
  * Демо-ролики на главной странице.
- * Замените URL ниже на реальные ссылки YouTube для этапа 2, этапа 3 и полной версии.
+ * [0] — этап 2, [1] — полная версия этапа 3 (на странице блоки могут идти в другом порядке).
  * Одна и та же ссылка используется для кнопки «Смотреть» и для встроенного предпросмотра.
  */
 
@@ -10,7 +10,6 @@ export type DemoVideoEntry = {
 };
 
 export const DEMO_VIDEOS: readonly DemoVideoEntry[] = [
-  { youtubeUrl: "https://youtu.be/LqthoTXZY0Q?si=S3m_UuEDZFJR1iol" },
   { youtubeUrl: "https://youtu.be/LqthoTXZY0Q?si=S3m_UuEDZFJR1iol" },
   { youtubeUrl: "https://youtu.be/LqthoTXZY0Q?si=S3m_UuEDZFJR1iol" },
 ] as const;

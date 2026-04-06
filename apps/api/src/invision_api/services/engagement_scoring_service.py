@@ -59,6 +59,25 @@ def _days_word_ru(n: int) -> str:
     return "дней"
 
 
+def _minutes_word_ru(n: int) -> str:
+    n10 = n % 10
+    n100 = n % 100
+    if n10 == 1 and n100 != 11:
+        return "минута"
+    if 2 <= n10 <= 4 and n100 not in (12, 13, 14):
+        return "минуты"
+    return "минут"
+
+
+def _format_active_time_humanized(total_minutes: int) -> str:
+    minutes = max(int(total_minutes), 0)
+    hours = minutes // 60
+    mins = minutes % 60
+    if hours <= 0:
+        return f"{mins} {_minutes_word_ru(mins)}"
+    return f"{hours} {_hours_word_ru(hours)} {mins} {_minutes_word_ru(mins)}"
+
+
 def humanize_last_activity(last_activity_at: datetime | None, *, now: datetime | None = None) -> str:
     if last_activity_at is None:
         return "нет активности"
@@ -127,6 +146,19 @@ def _active_time_bucket(unique_minutes: int) -> str:
     return "poor"
 
 
+def _resolve_speed_signal(submitted_at: datetime | None, registered_at: datetime | None) -> tuple[str, bool]:
+    if submitted_at is None or registered_at is None:
+        return ("нет данных", False)
+    delta_minutes = (submitted_at - registered_at).total_seconds() / 60.0
+    if delta_minutes <= 30:
+        return ("слишком быстро", False)
+    if delta_minutes < 180:
+        return ("умеренно быстро", False)
+    if delta_minutes <= 24 * 60:
+        return ("быстро", False)
+    return ("умеренно быстро", True)
+
+
 def _sort_cards(cards: list[dict[str, Any]], *, sort: str) -> list[dict[str, Any]]:
     if sort == "freshness":
         return sorted(
@@ -169,9 +201,88 @@ def _current_stage_entered_at(app: Application) -> datetime | None:
     return None
 
 
-def _build_engagement_card(
+def _first_interview_stage_entered_at(app: Application | None) -> datetime | None:
+    if not app:
+        return None
+    rows = [h.entered_at for h in app.stage_history if h.to_stage == ApplicationStage.interview.value]
+    return min(rows) if rows else None
+
+
+def _section_payload(app: Application | None, section_key: str) -> dict[str, Any]:
+    if not app:
+        return {}
+    for row in app.section_states:
+        if row.section_key == section_key and isinstance(row.payload, dict):
+            return row.payload
+    return {}
+
+
+def _build_interpretation_lines(
     *,
-    row: Any,
+    engagement_level: str,
+    risk_level: str,
+    speed_label: str,
+    speed_delay: bool,
+    stage_start_response_bucket: str,
+    stage_stagnation_bucket: str,
+    reminder_response_bucket: str,
+) -> list[str]:
+    lines: list[str] = []
+    if engagement_level == "High" and risk_level == "Low":
+        lines.append("Есть признаки устойчивого интереса и последовательного участия в процессе.")
+    elif engagement_level == "Medium":
+        lines.append("Вовлечённость выглядит умеренной: есть рабочая активность, но неравномерный темп действий.")
+    else:
+        lines.append("Вовлечённость снижена: заметны паузы и слабая динамика по текущему этапу.")
+
+    if speed_label == "слишком быстро":
+        lines.append("Подача выглядит слишком быстрой, поэтому глубину проработки анкеты стоит интерпретировать осторожно.")
+    elif speed_delay:
+        lines.append("Часть действий выполнялась с задержками, это снижает предсказуемость дальнейшего участия.")
+
+    if stage_start_response_bucket == "quick_start":
+        lines.append("Реакция на следующий этап своевременная.")
+    elif stage_start_response_bucket == "no_start" or stage_stagnation_bucket in {"mild", "severe"}:
+        lines.append("Есть задержки в старте действий на новом этапе.")
+
+    if reminder_response_bucket == "ignored":
+        lines.append("На напоминания платформа получала слабый отклик.")
+    elif reminder_response_bucket == "reacted_fast":
+        lines.append("Кандидат оперативно реагирует на напоминания платформы.")
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for line in lines:
+        if line not in seen:
+            deduped.append(line)
+            seen.add(line)
+    return deduped[:4] if deduped else ["Недостаточно данных для уверенной интерпретации вовлечённости."]
+
+
+def _build_final_line(
+    *,
+    engagement_level: str,
+    risk_level: str,
+    speed_label: str,
+    speed_delay: bool,
+    submitted_done: bool,
+) -> str:
+    if speed_label == "слишком быстро":
+        return (
+            "Подача выглядит слишком быстрой, поэтому глубину вовлечённости стоит оценивать аккуратно и уточнить "
+            "мотивацию на собеседовании."
+        )
+    if engagement_level == "High" and risk_level == "Low" and submitted_done:
+        return "Кандидат выглядит стабильно вовлечённым: участие в процессе последовательное, реакция на этапы своевременная."
+    if risk_level == "High":
+        return "Интерес к процессу есть, но выражены риски выпадения: комиссии стоит усилить сопровождение кандидата."
+    if speed_delay:
+        return "Вовлечённость скорее умеренная: участие осознанное, но часть действий выполнялась с задержками."
+    return "Кандидат демонстрирует рабочую вовлечённость, но по темпу и стабильности участия есть зоны для внимания."
+
+
+def _compute_engagement_insight(
+    *,
     app: Application | None,
     registered_at: datetime | None,
     candidate_user_id: UUID | None,
@@ -214,6 +325,7 @@ def _build_engagement_card(
 
     time_to_submit_bucket = _time_to_submit_bucket(app.submitted_at if app else None, registered_at)
     last_online_bucket = _last_online_bucket(last_activity_at, now=now)
+    speed_label, speed_delay = _resolve_speed_signal(app.submitted_at if app else None, registered_at)
 
     active_minutes: set[datetime] = set()
     for ev in events:
@@ -239,6 +351,7 @@ def _build_engagement_card(
             active_minutes.add(ts.replace(second=0, microsecond=0))
     active_time_score = len(active_minutes)
     active_time_bucket = _active_time_bucket(active_time_score)
+    active_time_humanized = _format_active_time_humanized(active_time_score)
 
     prep_signals = {
         "interview_info_opened": any(ev.event_type == "interview_info_opened" for ev in events),
@@ -248,7 +361,7 @@ def _build_engagement_card(
         "interview_preferences_submitted": bool(app and app.interview_preferences_submitted_at),
     }
     prep_count = sum(1 for v in prep_signals.values() if v)
-    current_stage = app.current_stage if app else row.current_stage
+    current_stage = app.current_stage if app else None
     if prep_count >= 3:
         prep_bucket = "strong"
     elif prep_count >= 1:
@@ -371,16 +484,186 @@ def _build_engagement_card(
     contributions["engagement_score"] = engagement_score
     contributions["risk_score"] = risk_score
 
+    if registered_at and timestamps:
+        first_action_at = min(timestamps)
+        start_fill = "начал сразу" if (first_action_at - registered_at) <= timedelta(hours=24) else "начал с задержкой"
+    elif timestamps:
+        start_fill = "начал"
+    else:
+        start_fill = "нет данных"
+
+    has_draft = any(ev.event_type == "section_saved" for ev in events) or any(
+        isinstance(ss, ApplicationSectionState) and ss.last_saved_at is not None for ss in (app.section_states if app else [])
+    )
+    docs_done = any(
+        (candidate_user_id is None or d.uploaded_by_user_id == candidate_user_id) for d in docs
+    )
+    education_payload = _section_payload(app, "education")
+    video_done = bool(str(education_payload.get("presentation_video_url") or "").strip())
+    test_done = any(t.submitted_at is not None for t in test_answers) or any(
+        ev.event_type == "internal_test_submitted" for ev in events
+    )
+    submitted_done = bool(app and app.submitted_at)
+    interview_stage_entered_at = _first_interview_stage_entered_at(app)
+    if app and app.interview_preferences_submitted_at:
+        if interview_stage_entered_at and (app.interview_preferences_submitted_at - interview_stage_entered_at) > timedelta(hours=24):
+            slot_signal = "выбран с задержкой"
+        else:
+            slot_signal = "выбран быстро"
+    else:
+        slot_signal = "не выбран"
+
+    next_stage_reaction = (
+        "вовремя"
+        if stage_start_response_bucket == "quick_start"
+        else "без старта"
+        if stage_start_response_bucket == "no_start"
+        else "с задержкой"
+        if stage_stagnation_bucket in {"mild", "severe"}
+        else "нет данных"
+    )
+
+    reminder_reaction = (
+        "быстро"
+        if reminder_response_bucket == "reacted_fast"
+        else "поздно"
+        if reminder_response_bucket == "reacted_late"
+        else "игнор"
+        if reminder_response_bucket == "ignored"
+        else "нет данных"
+    )
+
+    signals = [
+        f"Старт заполнения: {start_fill}.",
+        f"Скорость прохождения анкеты: {speed_label}{' (есть задержка)' if speed_delay else ''}.",
+        f"Суммарное активное время: {active_time_humanized}.",
+        f"Черновик: {'сохранял' if has_draft else 'не сохранял'}.",
+        f"Подача: {'завершена' if submitted_done else 'не завершена'}.",
+        f"Реакция на следующий этап: {next_stage_reaction}.",
+        f"Реакция на напоминания: {reminder_reaction}.",
+        f"Выбор слота собеседования: {slot_signal}.",
+    ]
+
+    interpretation = _build_interpretation_lines(
+        engagement_level=engagement_level,
+        risk_level=risk_level,
+        speed_label=speed_label,
+        speed_delay=speed_delay,
+        stage_start_response_bucket=stage_start_response_bucket,
+        stage_stagnation_bucket=stage_stagnation_bucket,
+        reminder_response_bucket=reminder_response_bucket,
+    )
+    final_line = _build_final_line(
+        engagement_level=engagement_level,
+        risk_level=risk_level,
+        speed_label=speed_label,
+        speed_delay=speed_delay,
+        submitted_done=submitted_done,
+    )
+
+    return {
+        "lastActivityAtIso": last_activity_at.isoformat() if last_activity_at else None,
+        "lastActivityHumanized": last_activity_humanized,
+        "activeTimeHumanized": active_time_humanized,
+        "engagementLevel": engagement_level,
+        "riskLevel": risk_level,
+        "breakdown": contributions,
+        "signals": signals,
+        "interpretation": interpretation,
+        "final": final_line,
+    }
+
+
+def _build_engagement_card(
+    *,
+    row: Any,
+    app: Application | None,
+    registered_at: datetime | None,
+    candidate_user_id: UUID | None,
+    events: list[CandidateActivityEvent],
+    audits: list[AuditLog],
+    docs: list[Document],
+    test_answers: list[InternalTestAnswer],
+    ai_answers: list[AIInterviewAnswer],
+    now: datetime,
+) -> dict[str, Any]:
+    insight = _compute_engagement_insight(
+        app=app,
+        registered_at=registered_at,
+        candidate_user_id=candidate_user_id,
+        events=events,
+        audits=audits,
+        docs=docs,
+        test_answers=test_answers,
+        ai_answers=ai_answers,
+        now=now,
+    )
+
     return {
         "applicationId": str(row.application_id),
         "candidateFullName": row.candidate_full_name or "Кандидат",
         "program": row.program,
         "currentStage": row.current_stage,
-        "lastActivityAtIso": last_activity_at.isoformat() if last_activity_at else None,
-        "lastActivityHumanized": last_activity_humanized,
-        "engagementLevel": engagement_level,
-        "riskLevel": risk_level,
-        "breakdown": contributions,
+        "lastActivityAtIso": insight.get("lastActivityAtIso"),
+        "lastActivityHumanized": insight.get("lastActivityHumanized") or "нет активности",
+        "activeTimeHumanized": insight.get("activeTimeHumanized"),
+        "engagementLevel": insight.get("engagementLevel") or "Medium",
+        "riskLevel": insight.get("riskLevel") or "Medium",
+        "breakdown": insight.get("breakdown") or {},
+    }
+
+
+def build_engagement_insight_for_application(db: Session, *, application_id: UUID) -> dict[str, Any] | None:
+    app = db.scalars(
+        select(Application)
+        .where(Application.id == application_id)
+        .options(
+            selectinload(Application.candidate_profile).selectinload(CandidateProfile.user),
+            selectinload(Application.stage_history),
+            selectinload(Application.section_states),
+            selectinload(Application.interview_sessions),
+        )
+    ).first()
+    if not app:
+        return None
+
+    profile = app.candidate_profile
+    user = profile.user if profile else None
+    candidate_user_id = user.id if user else None
+    registered_at = user.created_at if user else app.created_at
+    now = datetime.now(tz=UTC)
+
+    events = db.scalars(
+        select(CandidateActivityEvent).where(CandidateActivityEvent.application_id == application_id)
+    ).all()
+    audits = db.scalars(
+        select(AuditLog).where(AuditLog.entity_type == "application", AuditLog.entity_id == application_id)
+    ).all()
+    docs = db.scalars(select(Document).where(Document.application_id == application_id)).all()
+    test_answers = db.scalars(select(InternalTestAnswer).where(InternalTestAnswer.application_id == application_id)).all()
+    ai_answers = db.scalars(select(AIInterviewAnswer).where(AIInterviewAnswer.application_id == application_id)).all()
+
+    insight = _compute_engagement_insight(
+        app=app,
+        registered_at=registered_at,
+        candidate_user_id=candidate_user_id,
+        events=list(events),
+        audits=list(audits),
+        docs=list(docs),
+        test_answers=list(test_answers),
+        ai_answers=list(ai_answers),
+        now=now,
+    )
+    return {
+        "applicationId": str(app.id),
+        "candidateFullName": (f"{profile.first_name} {profile.last_name}".strip() if profile else "Кандидат"),
+        "currentStage": app.current_stage,
+        "engagementLevel": insight.get("engagementLevel"),
+        "riskLevel": insight.get("riskLevel"),
+        "signals": insight.get("signals") or [],
+        "interpretation": insight.get("interpretation") or [],
+        "final": insight.get("final") or "",
+        "breakdown": insight.get("breakdown") or {},
     }
 
 

@@ -17,20 +17,6 @@ const BULLETS_STAGE_2 = [
   "-Горизонтальное масштабирование",
 ] as const;
 
-const BULLETS_STAGE_3 = [
-  "-Полный путь жизни заявки",
-  "-3х этажная валидация заявки",
-  "-Drag & Drop",
-  "-AI-собеседование",
-  "-Summary видео-презентации",
-  "-Summary к разделам анкеты",
-  "-Лид-скоринг платформы",
-  "-LLM и сервере",
-  "-Сторона комиссии",
-  "-История заявок",
-  "-и многое другое",
-] as const;
-
 const BULLETS_FULL = ["-Все функции"] as const;
 
 const IFRAME_ALLOW =
@@ -95,32 +81,11 @@ function VideoPreview({ youtubeUrl, title }: { youtubeUrl: string; title: string
 }
 
 export function DemoVideosSection() {
-  const v0 = DEMO_VIDEOS[0]!.youtubeUrl;
-  const v1 = DEMO_VIDEOS[1]!.youtubeUrl;
-  const v2 = DEMO_VIDEOS[2]!.youtubeUrl;
+  const stage2Url = DEMO_VIDEOS[0]!.youtubeUrl;
+  const stage3FullUrl = DEMO_VIDEOS[1]!.youtubeUrl;
 
   return (
     <section className={styles.demoSection} aria-label="Демо-видео">
-      <div className={styles.demoRow}>
-        <div className={styles.demoTextCol}>
-          <p className={styles.demoTitle}>ДЕМО-ВИДЕО | 2 ЭТАП</p>
-          <p className={styles.demoIntro}>{INTRO}</p>
-          <BulletList items={BULLETS_STAGE_2} />
-          <WatchButton youtubeUrl={v0} />
-        </div>
-        <VideoPreview youtubeUrl={v0} title="Демо-видео, этап 2" />
-      </div>
-
-      <div className={styles.demoRow}>
-        <div className={styles.demoTextCol}>
-          <p className={styles.demoTitle}>ДЕМО-ВИДЕО | 3 ЭТАП</p>
-          <p className={styles.demoIntro}>{INTRO}</p>
-          <BulletList items={BULLETS_STAGE_3} />
-          <WatchButton youtubeUrl={v1} />
-        </div>
-        <VideoPreview youtubeUrl={v1} title="Демо-видео, этап 3" />
-      </div>
-
       <div className={styles.demoRow}>
         <div className={styles.demoTextCol}>
           <p className={`${styles.demoTitle} ${styles.demoTitleLeft}`}>
@@ -130,9 +95,19 @@ export function DemoVideosSection() {
           </p>
           <p className={styles.demoIntro}>{INTRO}</p>
           <BulletList items={BULLETS_FULL} />
-          <WatchButton youtubeUrl={v2} />
+          <WatchButton youtubeUrl={stage3FullUrl} />
         </div>
-        <VideoPreview youtubeUrl={v2} title="Демо-видео, этап 3, полная версия" />
+        <VideoPreview youtubeUrl={stage3FullUrl} title="Демо-видео, этап 3, полная версия" />
+      </div>
+
+      <div className={styles.demoRow}>
+        <div className={styles.demoTextCol}>
+          <p className={styles.demoTitle}>ДЕМО-ВИДЕО | 2 ЭТАП</p>
+          <p className={styles.demoIntro}>{INTRO}</p>
+          <BulletList items={BULLETS_STAGE_2} />
+          <WatchButton youtubeUrl={stage2Url} />
+        </div>
+        <VideoPreview youtubeUrl={stage2Url} title="Демо-видео, этап 2" />
       </div>
     </section>
   );

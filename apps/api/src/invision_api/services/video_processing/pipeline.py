@@ -128,32 +128,104 @@ def _failed_outcome_with_context(
     return out
 
 
-def _cap_summary_sentences(text: str, *, max_sentences: int = 6) -> str:
+def _normalize_summary_sentences(text: str, *, min_sentences: int = 7, max_sentences: int = 8) -> str:
     s = (text or "").strip()
     if not s:
         return ""
     parts = [p.strip() for p in _SENTENCE_SPLIT_RE.split(s) if p.strip()]
-    if not parts or len(parts) <= max_sentences:
-        return s
-    return " ".join(parts[:max_sentences]).strip()
+    if len(parts) < min_sentences:
+        return ""
+    if len(parts) > max_sentences:
+        parts = parts[:max_sentences]
+    return " ".join(parts).strip()
 
 
-def _extractive_summary_from_transcript(transcript: str, *, max_sentences: int = 3, max_chars: int = 560) -> str:
-    """Fallback summary when LLM summarization is unavailable."""
+def _sentence_priority(sentence: str) -> int:
+    s = sentence.lower()
+    score = 0
+    markers = (
+        "сделал",
+        "сделала",
+        "создал",
+        "создала",
+        "запустил",
+        "запустила",
+        "организовал",
+        "организовала",
+        "проект",
+        "результат",
+        "достиг",
+        "достигла",
+        "опыт",
+        "цель",
+        "вывод",
+        "понял",
+        "поняла",
+        "научил",
+        "научилась",
+    )
+    for marker in markers:
+        if marker in s:
+            score += 1
+    if re.search(r"\d", s):
+        score += 1
+    return score
+
+
+def _pick_evenly_distributed(items: list[str], *, count: int) -> list[str]:
+    if not items or count <= 0:
+        return []
+    if len(items) <= count:
+        return items[:]
+
+    picked_indices: list[int] = []
+    used: set[int] = set()
+    for i in range(count):
+        idx = round(i * (len(items) - 1) / max(1, count - 1))
+        if idx in used:
+            shift = idx + 1
+            while shift < len(items) and shift in used:
+                shift += 1
+            if shift < len(items):
+                idx = shift
+            else:
+                shift = idx - 1
+                while shift >= 0 and shift in used:
+                    shift -= 1
+                if shift >= 0:
+                    idx = shift
+        used.add(idx)
+        picked_indices.append(idx)
+    picked_indices.sort()
+    return [items[i] for i in picked_indices]
+
+
+def _extractive_summary_from_transcript(
+    transcript: str,
+    *,
+    min_sentences: int = 7,
+    max_sentences: int = 8,
+    max_chars: int = 1800,
+) -> str:
+    """Whole-transcript fallback summary for LLM failures."""
     raw = (transcript or "").strip()
     if not raw:
         return ""
     parts = [p.strip() for p in _SENTENCE_SPLIT_RE.split(raw) if p.strip()]
-    if not parts:
+    informative = [p for p in parts if len(p) >= 20]
+    if len(informative) < min_sentences:
         return ""
-    informative = [p for p in parts if len(p) >= 20] or parts
-    summary = " ".join(informative[:max_sentences]).strip()
-    if len(summary) <= max_chars:
-        return summary
-    trimmed = summary[:max_chars].rstrip()
-    if "." in trimmed:
-        trimmed = trimmed.rsplit(".", 1)[0].strip()
-    return f"{trimmed}." if trimmed else ""
+    factual = [p for p in informative if _sentence_priority(p) > 0]
+    source = factual if len(factual) >= min_sentences else informative
+    selected = _pick_evenly_distributed(source, count=max_sentences)
+    if len(selected) < min_sentences:
+        return ""
+
+    while selected and len(" ".join(selected)) > max_chars:
+        selected.pop()
+    if len(selected) < min_sentences:
+        return ""
+    return " ".join(selected).strip()
 
 
 def _normalized_exception_message(exc: Exception, *, fallback: str) -> str:
@@ -386,16 +458,16 @@ def run_presentation_pipeline(video_url: str) -> VideoPipelineOutcome:
                     warnings.append(
                         f"Суммаризация недоступна: {_normalized_exception_message(exc, fallback='LLM summary error')}"
                     )
-                    summary = _extractive_summary_from_transcript(raw)
+                    summary = _extractive_summary_from_transcript(raw, min_sentences=7, max_sentences=8)
                 except Exception as exc:
                     logger.exception("summary layer raised")
                     warnings.append(
                         f"Суммаризация недоступна: {_normalized_exception_message(exc, fallback='LLM summary error')}"
                     )
-                    summary = _extractive_summary_from_transcript(raw)
-                summary = _cap_summary_sentences(summary, max_sentences=6)
+                    summary = _extractive_summary_from_transcript(raw, min_sentences=7, max_sentences=8)
+                summary = _normalize_summary_sentences(summary, min_sentences=7, max_sentences=8)
                 if not summary:
-                    summary = _extractive_summary_from_transcript(raw)
+                    summary = _extractive_summary_from_transcript(raw, min_sentences=7, max_sentences=8)
                 if not summary:
                     summary = COMMISSION_NO_TEXT
             else:

@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { HistoryTimeline } from "@/components/commission/HistoryTimeline";
 import { AIInterviewPanel } from "@/components/commission/detail/AIInterviewPanel";
 import { CommissionCommentBlock } from "@/components/commission/detail/CommissionCommentBlock";
+import { EngagementInfoModal } from "@/components/commission/detail/EngagementInfoModal";
 import { MoveNextStageButton } from "@/components/commission/detail/MoveNextStageButton";
 import { PersonalInfoSection } from "@/components/commission/detail/PersonalInfoSection";
 import { VideoCandidateDrawer } from "@/components/commission/detail/VideoCandidateDrawer";
@@ -210,7 +211,12 @@ export default function CommissionApplicationDetailPage() {
   const searchParams = useSearchParams();
   const applicationId = Array.isArray(params.applicationId) ? params.applicationId[0] : params.applicationId;
   const router = useRouter();
-  const sidebarMode = searchParams.get("sidebar") === "history" ? "history" : "summary";
+  const sidebarMode = (() => {
+    const raw = searchParams.get("sidebar");
+    if (raw === "history") return "history" as const;
+    if (raw === "engagement") return "engagement" as const;
+    return "summary" as const;
+  })();
   const [data, setData] = useState<CommissionApplicationPersonalInfoView | null>(null);
   const [role, setRole] = useState<CommissionRole | null>(null);
   const [commissionMe, setCommissionMe] = useState<CommissionMe | null>(null);
@@ -236,6 +242,7 @@ export default function CommissionApplicationDetailPage() {
   const [scoresLoading, setScoresLoading] = useState(false);
   const lastScoresTabRef = useRef<string>("");
   const [isVideoDrawerOpen, setIsVideoDrawerOpen] = useState(false);
+  const [isEngagementInfoOpen, setIsEngagementInfoOpen] = useState(false);
   const [videoScoreBlock, setVideoScoreBlock] = useState<ReviewScoreBlockType | null>(null);
   const [videoScoreLoading, setVideoScoreLoading] = useState(false);
   const [videoScoreSaving, setVideoScoreSaving] = useState(false);
@@ -251,6 +258,9 @@ export default function CommissionApplicationDetailPage() {
   );
 
   const effectiveSidebarTab = useMemo(() => {
+    if (sidebarMode === "engagement") {
+      return "engagement";
+    }
     if (isDataVerificationStage) {
       return activeTab;
     }
@@ -258,7 +268,7 @@ export default function CommissionApplicationDetailPage() {
       return "ai_interview";
     }
     return activeTab;
-  }, [commissionPillIndex, interviewSubTab, activeTab, isDataVerificationStage]);
+  }, [sidebarMode, commissionPillIndex, interviewSubTab, activeTab, isDataVerificationStage]);
   const sidebarRequestKey = useMemo(
     () => `${applicationId ?? ""}:${effectiveSidebarTab}`,
     [applicationId, effectiveSidebarTab],
@@ -331,6 +341,7 @@ export default function CommissionApplicationDetailPage() {
     setHistoryEvents([]);
     setHistoryLoading(false);
     setIsVideoDrawerOpen(false);
+    setIsEngagementInfoOpen(false);
     setVideoScoreBlock(null);
     setVideoScoreLoading(false);
     setVideoScoreSaving(false);
@@ -491,10 +502,9 @@ export default function CommissionApplicationDetailPage() {
   );
   const videoRecommendedScore = hasVideoData ? (videoScoreBlock?.aggregateRecommendedScore ?? null) : null;
   const videoCurrentScore = resolveUnifiedSavedScore(videoScoreBlock);
+  const isApplicationReviewStage = data?.stageContext?.currentStage === "application_review";
   const canEditVideoScore = Boolean(
-    permissions.canComment &&
-      !data?.readOnly &&
-      !isDataVerificationStage,
+    permissions.canComment && !data?.readOnly && isApplicationReviewStage,
   );
 
   const _TAB_TO_SECTION: Record<string, string> = useMemo(() => ({
@@ -604,9 +614,25 @@ export default function CommissionApplicationDetailPage() {
               </div>
             ) : (
               <div key={`${commissionPillIndex}-${effectiveSidebarTab}`} className={styles.sidebarPanelEnter}>
-                <h3 className={styles.aiTitle}>
-                  {sidebarPanel?.title ?? (isDataVerificationStage ? "Статус обработки" : "Summary")}
-                </h3>
+                {sidebarMode === "engagement" ? (
+                  <div className={styles.sidebarTitleRow}>
+                    <h3 className={styles.aiTitle}>
+                      {sidebarPanel?.title ?? "Вовлеченность"}
+                    </h3>
+                    <button
+                      type="button"
+                      className={styles.infoIconButton}
+                      onClick={() => setIsEngagementInfoOpen(true)}
+                      aria-label="Что показывает вкладка Вовлеченность"
+                    >
+                      i
+                    </button>
+                  </div>
+                ) : (
+                  <h3 className={styles.aiTitle}>
+                    {sidebarPanel?.title ?? (isDataVerificationStage ? "Статус обработки" : "Summary")}
+                  </h3>
+                )}
                 {sidebarLoading && !hasSidebarDataForCurrentKey ? (
                   <p className={styles.aiText}>Загрузка...</p>
                 ) : hasSidebarDataForCurrentKey ? (
@@ -651,6 +677,10 @@ export default function CommissionApplicationDetailPage() {
               comments={data.comments}
               canComment={permissions.canComment && data.actions.canComment}
               embedded
+              onCommentSaved={async () => {
+                const detail = await getCommissionApplicationPersonalInfo(applicationId!);
+                setData(detail);
+              }}
             />
           </section>
         </aside>
@@ -721,6 +751,7 @@ export default function CommissionApplicationDetailPage() {
             canEditScore={canEditVideoScore}
             scoreLoading={videoScoreLoading}
             scoreSaving={videoScoreSaving}
+            savedByEmail={videoCurrentScore !== null ? commissionMe?.email ?? null : null}
             onSaveScore={async (score) => {
               if (!applicationId || !canEditVideoScore) return;
               setVideoScoreSaving(true);
@@ -739,6 +770,10 @@ export default function CommissionApplicationDetailPage() {
                 setVideoScoreSaving(false);
               }
             }}
+          />
+          <EngagementInfoModal
+            open={sidebarMode === "engagement" && isEngagementInfoOpen}
+            onClose={() => setIsEngagementInfoOpen(false)}
           />
 
           {commissionPillIndex === 0 && activeTab !== "Личная информация" && (
