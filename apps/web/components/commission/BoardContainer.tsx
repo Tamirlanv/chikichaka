@@ -13,7 +13,7 @@ import {
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useRouter } from "next/navigation";
 import { COMMISSION_STAGE_ORDER, COMMISSION_STAGE_TITLES } from "@/lib/commission/constants";
-import { isNextStageOnly } from "@/lib/commission/dnd";
+import { isNextStageOnly, resolveDropStage } from "@/lib/commission/dnd";
 import { permissionsFromRole } from "@/lib/commission/permissions";
 import {
   createQuickComment,
@@ -230,10 +230,11 @@ export function BoardContainer({ filters, onError }: Props) {
 
   function handleDragEnd(event: DragEndEvent) {
     setActiveDragId(null);
+    if (!data) return;
     const applicationId = String(event.active.id);
-    const overId = event.over?.id ? String(event.over.id) : "";
-    if (!overId.startsWith("column:")) return;
-    const toStage = overId.replace("column:", "") as CommissionStage;
+    const overId = event.over?.id ? String(event.over.id) : null;
+    const toStage = resolveDropStage(overId, data.columns);
+    if (!toStage) return;
     void onDropCard(applicationId, toStage);
   }
 

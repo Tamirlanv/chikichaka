@@ -60,6 +60,7 @@ export function BoardColumn({
 
   return (
     <section
+      ref={setNodeRef}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -67,7 +68,10 @@ export function BoardColumn({
         minWidth: 310,
         flex: "0 0 310px",
         minHeight: "fit-content",
+        alignSelf: "stretch",
         background: "transparent",
+        borderRadius: 16,
+        boxShadow: isOver ? "0 0 0 1px rgba(38, 38, 38, 0.55)" : "none",
       }}
     >
       <header
@@ -145,7 +149,6 @@ export function BoardColumn({
       />
 
       <div
-        ref={setNodeRef}
         style={{
           marginTop: 20,
           display: "flex",
@@ -155,8 +158,8 @@ export function BoardColumn({
           padding: 16,
           background: "#fff",
           borderRadius: 16,
-          boxShadow: isOver ? "0 4px 24px rgba(0,0,0,0.16)" : "0 4px 24px rgba(0,0,0,0.1)",
-          outline: isOver ? "1px solid #262626" : "none",
+          boxShadow: isOver ? "0 6px 28px rgba(0,0,0,0.16)" : "0 4px 24px rgba(0,0,0,0.1)",
+          outline: isOver ? "1px solid rgba(38,38,38,0.55)" : "none",
           outlineOffset: 0,
           minHeight: 48,
         }}

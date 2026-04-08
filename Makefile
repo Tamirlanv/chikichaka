@@ -7,7 +7,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help install install-frontend install-api infra frontend backend worker sweep-data-check dev migrate init-db seed docker-up docker-down smoke smoke-services test-integration test-e2e check-invariants
+.PHONY: help install install-frontend install-api infra frontend backend worker sweep-data-check backfill-applications dev migrate init-db seed docker-up docker-down smoke smoke-services test-integration test-e2e check-invariants
 
 help:
 	@echo "inVision U — commands"
@@ -21,6 +21,7 @@ help:
 	@echo "  make backend          - FastAPI + auto-start validation services + migrations (run make seed for DB seed)"
 	@echo "  make worker           - Redis job worker (admission_jobs queue)"
 	@echo "  make sweep-data-check - one-shot DB sweep (stale runs + SLA); use in cron if queue is always busy"
+	@echo "  make backfill-applications ARGS=\"...\" - one-shot derived data backfill/reprocessing"
 	@echo "  make dev              - start backend + worker + frontend together (3 panes)"
 	@echo ""
 	@echo "  make migrate          - alembic upgrade head (run after deploy/pull when the API adds or changes DB schema)"
@@ -60,6 +61,9 @@ worker:
 
 sweep-data-check:
 	@bash scripts/sweep-data-check.sh
+
+backfill-applications:
+	@bash scripts/backfill-derived-applications.sh $(ARGS)
 
 dev:
 	@if command -v tmux >/dev/null 2>&1; then \

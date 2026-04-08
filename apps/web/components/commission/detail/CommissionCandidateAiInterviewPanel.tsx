@@ -25,6 +25,15 @@ function formatDateTimeForPanel(raw: string, candidateFullName: string | null | 
   return dt.toLocaleString("ru-RU");
 }
 
+function normalizeList(lines: string[] | undefined, emptyMessage: string): string[] {
+  const source = Array.isArray(lines) ? lines : [];
+  const cleaned = source
+    .map((line) => String(line ?? "").replace(/\s+/g, " ").trim().replace(/[.;:\s]+$/, ""))
+    .filter(Boolean);
+  if (cleaned.length === 0) return [emptyMessage];
+  return Array.from(new Set(cleaned));
+}
+
 export function CommissionCandidateAiInterviewPanel({ applicationId, isActive, candidateFullName }: Props) {
   const [data, setData] = useState<CommissionAiInterviewSessionView | null>(null);
   const [loading, setLoading] = useState(true);
@@ -101,6 +110,28 @@ export function CommissionCandidateAiInterviewPanel({ applicationId, isActive, c
     );
   }
 
+  const resolvedPoints = normalizeList(
+    data.resolutionSummary?.resolvedPoints,
+    "Значимых уточнений пока не зафиксировано",
+  );
+  const unresolvedPoints = normalizeList(
+    data.resolutionSummary?.unresolvedPoints,
+    "Открытых вопросов не зафиксировано",
+  );
+  const newInformation = normalizeList(
+    data.resolutionSummary?.newInformation,
+    "Новой значимой информации не добавилось",
+  );
+  const followUpFocus = normalizeList(
+    data.resolutionSummary?.followUpFocus,
+    "Критичных тем для дополнительной проверки не выявлено",
+  );
+  const followUpPoints =
+    followUpFocus[0] === "Критичных тем для дополнительной проверки не выявлено" &&
+    unresolvedPoints[0] !== "Открытых вопросов не зафиксировано"
+      ? unresolvedPoints.slice(0, 4)
+      : followUpFocus;
+
   return (
     <div style={{ display: "grid", gap: 0, fontSize: 14 }}>
       <header style={{ paddingBottom: 16 }}>
@@ -161,59 +192,35 @@ export function CommissionCandidateAiInterviewPanel({ applicationId, isActive, c
           </div>
           <div>
             <p style={{ ...labelStyle, marginBottom: 4 }}>Что удалось уточнить</p>
-            {data.resolutionSummary.resolvedPoints.length === 0 ? (
-              <p style={{ ...labelStyle, margin: 0 }}>—</p>
-            ) : (
-              <ul style={{ margin: 0, paddingLeft: 20, color: "#262626", fontWeight: regularWeight, lineHeight: 1.4 }}>
-                {data.resolutionSummary.resolvedPoints.map((line, i) => (
-                  <li key={`r-${i}`}>{line}</li>
-                ))}
-              </ul>
-            )}
+            <ul style={{ margin: 0, paddingLeft: 20, color: "#262626", fontWeight: regularWeight, lineHeight: 1.4 }}>
+              {resolvedPoints.map((line, i) => (
+                <li key={`r-${i}`}>{line}</li>
+              ))}
+            </ul>
           </div>
           <div>
             <p style={{ ...labelStyle, marginBottom: 4 }}>Что остаётся под вопросом</p>
-            {data.resolutionSummary.unresolvedPoints.length === 0 ? (
-              <p style={{ ...labelStyle, margin: 0 }}>—</p>
-            ) : (
-              <ul style={{ margin: 0, paddingLeft: 20, color: "#262626", fontWeight: regularWeight, lineHeight: 1.4 }}>
-                {data.resolutionSummary.unresolvedPoints.map((line, i) => (
-                  <li key={`u-${i}`}>{line}</li>
-                ))}
-              </ul>
-            )}
+            <ul style={{ margin: 0, paddingLeft: 20, color: "#262626", fontWeight: regularWeight, lineHeight: 1.4 }}>
+              {unresolvedPoints.map((line, i) => (
+                <li key={`u-${i}`}>{line}</li>
+              ))}
+            </ul>
           </div>
           <div>
             <p style={{ ...labelStyle, marginBottom: 4 }}>Новая информация</p>
-            {data.resolutionSummary.newInformation.length === 0 ? (
-              <p style={{ ...labelStyle, margin: 0 }}>—</p>
-            ) : (
-              <ul style={{ margin: 0, paddingLeft: 20, color: "#262626", fontWeight: regularWeight, lineHeight: 1.4 }}>
-                {data.resolutionSummary.newInformation.map((line, i) => (
-                  <li key={`n-${i}`}>{line}</li>
-                ))}
-              </ul>
-            )}
+            <ul style={{ margin: 0, paddingLeft: 20, color: "#262626", fontWeight: regularWeight, lineHeight: 1.4 }}>
+              {newInformation.map((line, i) => (
+                <li key={`n-${i}`}>{line}</li>
+              ))}
+            </ul>
           </div>
           <div>
             <p style={{ ...labelStyle, marginBottom: 4 }}>На что обратить внимание на живом собеседовании</p>
-            {(data.resolutionSummary.followUpFocus ?? []).length === 0 ? (
-              data.resolutionSummary.unresolvedPoints.length === 0 ? (
-                <p style={{ ...labelStyle, margin: 0 }}>—</p>
-              ) : (
-                <ul style={{ margin: 0, paddingLeft: 20, color: "#262626", fontWeight: regularWeight, lineHeight: 1.4 }}>
-                  {data.resolutionSummary.unresolvedPoints.slice(0, 4).map((line, i) => (
-                    <li key={`f-der-${i}`}>Уточнить: {line}</li>
-                  ))}
-                </ul>
-              )
-            ) : (
-              <ul style={{ margin: 0, paddingLeft: 20, color: "#262626", fontWeight: regularWeight, lineHeight: 1.4 }}>
-                {(data.resolutionSummary.followUpFocus ?? []).map((line, i) => (
-                  <li key={`f-${i}`}>{line}</li>
-                ))}
-              </ul>
-            )}
+            <ul style={{ margin: 0, paddingLeft: 20, color: "#262626", fontWeight: regularWeight, lineHeight: 1.4 }}>
+              {followUpPoints.map((line, i) => (
+                <li key={`f-${i}`}>{line}</li>
+              ))}
+            </ul>
           </div>
         </div>
       ) : null}

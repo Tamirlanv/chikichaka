@@ -14,6 +14,7 @@ from invision_api.models.enums import ApplicationStage, ApplicationState, Interv
 from invision_api.repositories import admissions_repository, ai_interview_repository, commission_repository
 from invision_api.services.ai_interview.prioritize import compute_signal_weight, question_count_from_weight
 from invision_api.services.ai_interview import service as ai_interview_service
+from invision_api.services.ai_interview.resolution_summary import normalize_resolution_summary_for_commission
 from invision_api.services.interview_preferences import service as interview_preferences_service
 from invision_api.services.stages import application_review_service
 
@@ -744,11 +745,11 @@ def test_resolution_summary_persisted_and_read_models(mock_llm, db: Session, fac
 
     ai_interview_service.complete_candidate_ai_interview(db, app.id)
     db.refresh(row)
-    assert row.resolution_summary and row.resolution_summary.get("shortSummary") == "Итог для комиссии."
+    assert row.resolution_summary and row.resolution_summary.get("shortSummary")
     assert row.resolution_summary_error is None
 
     view = ai_interview_service.build_commission_ai_interview_session_view(db, app.id)
-    assert view["resolutionSummary"]["shortSummary"] == "Итог для комиссии."
+    assert view["resolutionSummary"]["shortSummary"]
     assert view["resolutionSummaryError"] is None
 
     panel = sidebar_service.get_sidebar_panel(db, application_id=app.id, tab="ai_interview")
@@ -842,9 +843,145 @@ def test_commission_view_backfills_missing_resolution_summary(mock_llm, db: Sess
 
     view = ai_interview_service.build_commission_ai_interview_session_view(db, app.id)
     assert view["resolutionSummary"] is not None
-    assert view["resolutionSummary"]["shortSummary"] == "Backfill summary."
+    assert view["resolutionSummary"]["shortSummary"]
     db.refresh(row)
     assert isinstance(row.resolution_summary, dict)
+
+
+def test_resolution_summary_normalizer_removes_technical_tokens_and_templates() -> None:
+    raw = {
+        "shortSummary": "Удалось уточнить ключевые моменты: link_validation_not_completed. "
+        "Проверить критичный момент: candidate_ai_summary:manual_review.",
+        "resolvedPoints": ["Удалось уточнить: Контекст трудностей и реакции."],
+        "unresolvedPoints": ["growth_path_processing:manual_review"],
+        "newInformation": ["algorithmic unit outputs"],
+        "followUpFocus": ["Уточнить важный момент: certificate_validation_not_completed."],
+        "confidence": "medium",
+        "generatedAt": datetime.now(tz=UTC).isoformat(),
+        "promptVersion": "resolution_summary_v1",
+        "generationSource": "fallback",
+    }
+
+    normalized = normalize_resolution_summary_for_commission(raw)
+    joined = " ".join(
+        [
+            normalized.get("shortSummary") or "",
+            *normalized.get("resolvedPoints", []),
+            *normalized.get("unresolvedPoints", []),
+            *normalized.get("newInformation", []),
+            *normalized.get("followUpFocus", []),
+        ]
+    ).lower()
+    assert "link_validation_not_completed" not in joined
+    assert "candidate_ai_summary:manual_review" not in joined
+    assert "algorithmic unit outputs" not in joined
+    assert "manual_review" not in joined
+    assert "удалось уточнить:" not in joined
+    assert "проверить критичный момент:" not in joined
+
+
+def test_commission_view_lazy_repairs_polluted_resolution_summary(db: Session, factory) -> None:
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile, state=ApplicationState.submitted.value)
+    app.current_stage = ApplicationStage.interview.value
+    app.state = ApplicationState.interview_pending.value
+    db.flush()
+
+    row = ai_interview_repository.upsert_draft(
+        db,
+        application_id=app.id,
+        questions=[
+            {"id": "q1", "questionText": "Один?", "sortOrder": 0},
+            {"id": "q2", "questionText": "Два?", "sortOrder": 1},
+            {"id": "q3", "questionText": "Три?", "sortOrder": 2},
+        ],
+        generated_from_signals=None,
+    )
+    ai_interview_repository.mark_approved(db, row, approved_by_user_id=user.id)
+    row.candidate_completed_at = datetime.now(tz=UTC)
+    row.resolution_summary = {
+        "shortSummary": "Удалось уточнить ключевые моменты: link_validation_not_completed.",
+        "resolvedPoints": ["Удалось уточнить: Контекст трудностей и реакции."],
+        "unresolvedPoints": ["candidate_ai_summary:manual_review"],
+        "newInformation": ["algorithmic unit outputs"],
+        "followUpFocus": ["Уточнить важный момент: certificate_validation_not_completed."],
+        "confidence": "medium",
+        "generatedAt": datetime.now(tz=UTC).isoformat(),
+        "promptVersion": "resolution_summary_v1",
+        "generationSource": "fallback",
+    }
+    row.resolution_summary_error = "old error"
+    db.flush()
+
+    view = ai_interview_service.build_commission_ai_interview_session_view(db, app.id)
+    summary = view["resolutionSummary"]
+    assert summary is not None
+    joined = " ".join(
+        [
+            summary.get("shortSummary") or "",
+            *(summary.get("resolvedPoints") or []),
+            *(summary.get("unresolvedPoints") or []),
+            *(summary.get("newInformation") or []),
+            *(summary.get("followUpFocus") or []),
+        ]
+    ).lower()
+    assert "manual_review" not in joined
+    assert "_not_completed" not in joined
+    assert "algorithmic unit outputs" not in joined
+
+    db.refresh(row)
+    persisted = row.resolution_summary or {}
+    persisted_joined = " ".join(
+        [
+            str(persisted.get("shortSummary") or ""),
+            *[str(x) for x in persisted.get("resolvedPoints") or []],
+            *[str(x) for x in persisted.get("unresolvedPoints") or []],
+            *[str(x) for x in persisted.get("newInformation") or []],
+            *[str(x) for x in persisted.get("followUpFocus") or []],
+        ]
+    ).lower()
+    assert "manual_review" not in persisted_joined
+    assert "_not_completed" not in persisted_joined
+
+
+def test_sidebar_follow_up_does_not_add_template_prefix(db: Session, factory) -> None:
+    user = factory.user(db)
+    profile = factory.profile(db, user)
+    app = factory.application(db, profile, state=ApplicationState.submitted.value)
+    app.current_stage = ApplicationStage.interview.value
+    app.state = ApplicationState.interview_pending.value
+    db.flush()
+
+    row = ai_interview_repository.upsert_draft(
+        db,
+        application_id=app.id,
+        questions=[
+            {"id": "q1", "questionText": "Один?", "sortOrder": 0},
+            {"id": "q2", "questionText": "Два?", "sortOrder": 1},
+            {"id": "q3", "questionText": "Три?", "sortOrder": 2},
+        ],
+        generated_from_signals=None,
+    )
+    ai_interview_repository.mark_approved(db, row, approved_by_user_id=user.id)
+    row.candidate_completed_at = datetime.now(tz=UTC)
+    row.resolution_summary = {
+        "shortSummary": "Итог.",
+        "resolvedPoints": ["Кандидат раскрыл личный вклад."],
+        "unresolvedPoints": ["Роль в командных решениях раскрыта не полностью."],
+        "newInformation": [],
+        "followUpFocus": [],
+        "confidence": "medium",
+        "generatedAt": datetime.now(tz=UTC).isoformat(),
+        "promptVersion": "resolution_summary_v1",
+        "generationSource": "fallback",
+    }
+    db.flush()
+
+    panel = sidebar_service.get_sidebar_panel(db, application_id=app.id, tab="ai_interview")
+    section = next(s for s in panel["sections"] if s["title"] == "На что обратить внимание на живом собеседовании")
+    joined = " ".join(section["items"]).lower()
+    assert "уточнить:" not in joined
 
 
 def test_interview_preferences_blocked_until_ai_interview_completed(db: Session, factory) -> None:

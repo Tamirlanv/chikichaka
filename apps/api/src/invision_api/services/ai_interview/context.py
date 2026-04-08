@@ -23,6 +23,24 @@ _SECTION_LABELS_RU: dict[str, str] = {
     "internal_test": "Тест",
 }
 
+_UNIT_LABELS_RU: dict[str, str] = {
+    "test_profile_processing": "профиль теста",
+    "motivation_processing": "раздел «Мотивация»",
+    "growth_path_processing": "раздел «Путь»",
+    "achievements_processing": "раздел «Достижения»",
+    "link_validation": "ссылки",
+    "video_validation": "видео-презентация",
+    "certificate_validation": "документы и сертификаты",
+    "signals_aggregation": "сводка сигналов",
+    "candidate_ai_summary": "итоговая сводка по заявке",
+}
+
+_AUTH_SIGNAL_LABELS_RU: dict[str, str] = {
+    "link_validation_not_completed": "Ссылки проверены не полностью.",
+    "video_validation_not_completed": "Видео-презентация обработана не полностью.",
+    "certificate_validation_not_completed": "Документы и сертификаты обработаны не полностью.",
+}
+
 _REASON_PRIORITIES: dict[str, int] = {
     "contradiction": 5,
     "authenticity_check": 4,
@@ -63,6 +81,45 @@ def _truncate_expl_dict(d: dict[str, Any], max_chars: int = 4000) -> dict[str, A
 
 def _section_label(section_key: str) -> str:
     return _SECTION_LABELS_RU.get(section_key, section_key)
+
+
+def _humanize_attention_flag(flag: Any) -> str | None:
+    raw = str(flag or "").strip()
+    if not raw:
+        return None
+    if raw.endswith(":manual_review"):
+        unit = raw[: -len(":manual_review")]
+        label = _UNIT_LABELS_RU.get(unit, "один из блоков заявки")
+        return f"Требуется ручная проверка: {label}."
+    if raw.endswith(":failed"):
+        unit = raw[: -len(":failed")]
+        label = _UNIT_LABELS_RU.get(unit, "один из блоков заявки")
+        return f"Автоматическая проверка не завершилась: {label}."
+    return None
+
+
+def _humanize_authenticity_signal(flag: Any) -> str | None:
+    raw = str(flag or "").strip()
+    if not raw:
+        return None
+    if raw in _AUTH_SIGNAL_LABELS_RU:
+        return _AUTH_SIGNAL_LABELS_RU[raw]
+    if raw.endswith("_not_completed"):
+        return "Одна из проверок достоверности обработана не полностью."
+    return None
+
+
+def _humanize_explainability_line(item: Any) -> str | None:
+    raw = str(item or "").strip()
+    if not raw:
+        return None
+    low = raw.lower()
+    if "algorithmic unit outputs" in low:
+        return "Сигналы собраны по результатам проверок разделов заявки."
+    if low.startswith("dominant trait:"):
+        value = raw.split(":", 1)[1].strip() if ":" in raw else ""
+        return f"Доминирующая характеристика теста: {value or 'не определена'}."
+    return raw
 
 
 def _extract_text_fragments(value: Any, *, out: list[str], cap: int = 120) -> None:
@@ -185,7 +242,7 @@ def _collect_issue_candidates(
         if isinstance(flag, str) and flag.strip():
             push(
                 reason_type="missing_context",
-                summary=f"Нужно уточнение по материалам: {flag}",
+                summary=flag,
                 severity="medium",
                 source_sections=[],
             )
@@ -194,7 +251,7 @@ def _collect_issue_candidates(
         if isinstance(flag, str) and flag.strip():
             push(
                 reason_type="authenticity_check",
-                summary=f"Нужна проверка достоверности формулировок: {flag}",
+                summary=flag,
                 severity="high",
                 source_sections=[],
             )
@@ -314,10 +371,25 @@ def build_interview_context(db: Session, application_id: UUID) -> dict[str, Any]
 
     sig_summary: dict[str, Any] = {}
     if signals_row:
+        attention_flags = [
+            text
+            for text in (_humanize_attention_flag(x) for x in list(signals_row.attention_flags or []))
+            if text
+        ]
+        authenticity_flags = [
+            text
+            for text in (_humanize_authenticity_signal(x) for x in list(signals_row.authenticity_concern_signals or []))
+            if text
+        ]
+        explainability = [
+            text
+            for text in (_humanize_explainability_line(x) for x in list(signals_row.explainability or []))
+            if text
+        ][:20]
         sig_summary = {
-            "attention_flags": list(signals_row.attention_flags or []),
-            "authenticity_concern_signals": list(signals_row.authenticity_concern_signals or []),
-            "explainability": list(signals_row.explainability or [])[:20],
+            "attention_flags": attention_flags,
+            "authenticity_concern_signals": authenticity_flags,
+            "explainability": explainability,
             "manual_review_required": signals_row.manual_review_required,
             "leadership_signals": signals_row.leadership_signals,
             "growth_signals": signals_row.growth_signals,

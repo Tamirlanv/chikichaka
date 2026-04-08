@@ -17,6 +17,14 @@ _TECHNICAL_RESIDUE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bjson\b", re.IGNORECASE),
     re.compile(r"\bpayload\b", re.IGNORECASE),
     re.compile(r"\bpipeline\b", re.IGNORECASE),
+    re.compile(r"\balgorithmic unit outputs\b", re.IGNORECASE),
+    re.compile(r"\b[a-z]+_[a-z0-9_]+_not_completed\b", re.IGNORECASE),
+    re.compile(r"\b[a-z]+:[a-z_]+\b", re.IGNORECASE),
+    re.compile(r"\bmanual_review(?:_required)?\b", re.IGNORECASE),
+    re.compile(r"\blink_validation_not_completed\b", re.IGNORECASE),
+    re.compile(r"\bcertificate_validation_not_completed\b", re.IGNORECASE),
+    re.compile(r"\bgrowth_path_processing:manual_review\b", re.IGNORECASE),
+    re.compile(r"\bcandidate_ai_summary:manual_review\b", re.IGNORECASE),
 )
 
 

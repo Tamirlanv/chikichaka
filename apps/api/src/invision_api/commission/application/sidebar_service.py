@@ -1702,18 +1702,25 @@ def _build_ai_interview_resolution_panel(db: Session, application_id: UUID) -> d
             ],
         }
 
-    if not isinstance(row.resolution_summary, dict):
-        try:
-            from invision_api.services.ai_interview.resolution_summary import (
-                ensure_resolution_summary_available,
-            )
+    normalize_summary = None
+    try:
+        from invision_api.services.ai_interview.resolution_summary import (
+            ensure_resolution_summary_available,
+            normalize_resolution_summary_for_commission,
+        )
 
-            row = ensure_resolution_summary_available(db, application_id=application_id, row=row) or row
-        except Exception:
-            logger.exception("ai_interview_sidebar_summary_backfill_failed application_id=%s", application_id)
+        normalize_summary = normalize_resolution_summary_for_commission
+        row = ensure_resolution_summary_available(db, application_id=application_id, row=row) or row
+    except Exception:
+        logger.exception("ai_interview_sidebar_summary_backfill_failed application_id=%s", application_id)
 
     err = (row.resolution_summary_error or "").strip()
     data = row.resolution_summary if isinstance(row.resolution_summary, dict) else None
+    if data and callable(normalize_summary):
+        try:
+            data = normalize_summary(data)
+        except Exception:
+            logger.exception("ai_interview_sidebar_summary_normalize_failed application_id=%s", application_id)
 
     if err and not data:
         return {
@@ -1739,13 +1746,26 @@ def _build_ai_interview_resolution_panel(db: Session, application_id: UUID) -> d
     short = str(data.get("shortSummary") or "").strip()
     if not short:
         short = "Сводка пока недоступна."
+    short = _build_compact_summary(
+        short,
+        fallback="Сводка пока недоступна.",
+        max_sentences=4,
+        max_sentence_len=180,
+    )
 
-    def _lines(key: str) -> list[str]:
+    def _lines(key: str, *, empty_message: str) -> list[str]:
         raw = data.get(key)
         if not isinstance(raw, list):
-            return []
-        out = [str(x).strip() for x in raw if str(x).strip()]
-        return out if out else ["—"]
+            return [empty_message]
+        out: list[str] = []
+        for item in raw:
+            cleaned = _shared_strip_technical_residue(str(item or ""))
+            cleaned = re.sub(r"\s+", " ", cleaned).strip()
+            if not cleaned:
+                continue
+            out.append(_shared_truncate_sentence(cleaned.rstrip(" .;:"), 180))
+        out = _shared_dedupe_keep_order(out)
+        return out if out else [empty_message]
 
     conf = data.get("confidence")
     conf_label = ""
@@ -1758,19 +1778,26 @@ def _build_ai_interview_resolution_panel(db: Session, application_id: UUID) -> d
     if conf_label:
         short = f"{short} ({conf_label})"
 
+    resolved_lines = _lines("resolvedPoints", empty_message="Значимых уточнений пока не зафиксировано.")
+    unresolved_lines = _lines("unresolvedPoints", empty_message="Открытых вопросов не зафиксировано.")
+    new_info_lines = _lines("newInformation", empty_message="Новой значимой информации не добавилось.")
+    follow_up_lines = _lines(
+        "followUpFocus",
+        empty_message="Критичных тем для дополнительной проверки не выявлено.",
+    )
+    if follow_up_lines == ["Критичных тем для дополнительной проверки не выявлено."] and unresolved_lines != [
+        "Открытых вопросов не зафиксировано."
+    ]:
+        follow_up_lines = unresolved_lines[:4]
+
     sections = [
         _section_block("Краткий итог", [short]),
-        _section_block("Что удалось уточнить", _lines("resolvedPoints")),
-        _section_block("Что остаётся под вопросом", _lines("unresolvedPoints")),
-        _section_block("Новая информация", _lines("newInformation")),
+        _section_block("Что удалось уточнить", resolved_lines),
+        _section_block("Что остаётся под вопросом", unresolved_lines),
+        _section_block("Новая информация", new_info_lines),
         _section_block(
             "На что обратить внимание на живом собеседовании",
-            _lines("followUpFocus")
-            if _lines("followUpFocus") != ["—"]
-            else (
-                [f"Уточнить: {line}" for line in _lines("unresolvedPoints") if line != "—"][:4]
-                or ["—"]
-            ),
+            follow_up_lines,
         ),
     ]
     return {"type": "summary", "title": title, "sections": sections}

@@ -645,7 +645,7 @@ def build_commission_ai_interview_session_view(db: Session, application_id: UUID
     db.refresh(app_row)
 
     row = ai_interview_repository.get_question_set_for_application(db, application_id)
-    if row and row.candidate_completed_at and not isinstance(row.resolution_summary, dict):
+    if row and row.candidate_completed_at:
         row = ensure_resolution_summary_available(db, application_id=application_id, row=row)
     completed_at = row.candidate_completed_at.isoformat() if row and row.candidate_completed_at else None
 

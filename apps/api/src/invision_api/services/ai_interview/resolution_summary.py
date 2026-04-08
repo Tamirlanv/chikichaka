@@ -13,7 +13,12 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
-from invision_api.commission.application.sidebar_service import _strip_technical_residue
+from invision_api.commission.application.reviewer_text_sanitizer import (
+    dedupe_keep_order as _dedupe_keep_order,
+    split_sentences as _split_sentences,
+    strip_technical_residue as _strip_technical_residue,
+    truncate_sentence as _truncate_sentence,
+)
 from invision_api.models.ai_interview import AIInterviewQuestionSet
 from invision_api.repositories import ai_interview_repository
 from invision_api.services.ai_interview.context import build_interview_context
@@ -41,6 +46,26 @@ RESOLUTION_SUMMARY_PROMPT_VERSION = "resolution_summary_v1"
 
 _MAX_LIST_ITEMS = 24
 _MAX_STRING_LEN = 2000
+
+_REDUNDANT_PREFIXES: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^(?:удалось уточнить(?: ключевые моменты)?):\s*", re.IGNORECASE),
+    re.compile(r"^(?:проверить критичный момент):\s*", re.IGNORECASE),
+    re.compile(r"^(?:уточнить важный момент):\s*", re.IGNORECASE),
+    re.compile(r"^(?:при возможности уточнить):\s*", re.IGNORECASE),
+    re.compile(r"^(?:уточнить(?: на живом собеседовании)?):\s*", re.IGNORECASE),
+)
+
+_TECH_MARKERS: tuple[str, ...] = (
+    "manual_review",
+    "_not_completed",
+    "algorithmic unit outputs",
+    "link_validation",
+    "certificate_validation",
+    "candidate_ai_summary",
+    "growth_path_processing",
+    "signals_aggregation",
+    "unit outputs",
+)
 
 
 class ResolutionSummaryLLMOut(BaseModel):
@@ -76,6 +101,136 @@ def _sanitize_line(s: str) -> str:
     t = _strip_technical_residue(s.strip())
     t = re.sub(r"\s+", " ", t).strip()
     return t
+
+
+def _strip_redundant_prefixes(text: str) -> str:
+    out = text.strip()
+    for pattern in _REDUNDANT_PREFIXES:
+        out = pattern.sub("", out).strip()
+    return out
+
+
+def _looks_technical_line(text: str) -> bool:
+    low = text.lower()
+    if any(marker in low for marker in _TECH_MARKERS):
+        return True
+    if re.search(r"\b[a-z]+_[a-z0-9_]+\b", low):
+        return True
+    if re.search(r"\b[a-z]+:[a-z_]+\b", low):
+        return True
+    return False
+
+
+def _normalize_list_items(raw: Any, *, limit: int = 8) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        text = _sanitize_line(str(item or ""))
+        text = _strip_redundant_prefixes(text)
+        text = text.rstrip(" .;:")
+        text = _sanitize_line(text)
+        if not text or _looks_technical_line(text):
+            continue
+        out.append(_truncate_sentence(text, 220))
+    out = _dedupe_keep_order([x for x in out if x])
+    return out[:limit]
+
+
+def _topic_sentence(prefix: str, item: str) -> str:
+    topic = _sanitize_line(item).rstrip(" .;:")
+    if not topic:
+        return ""
+    return f"{prefix}: {topic}."
+
+
+def _normalize_short_summary(
+    raw_summary: str,
+    *,
+    resolved: list[str],
+    unresolved: list[str],
+    new_info: list[str],
+    follow_up: list[str],
+) -> str:
+    sentences: list[str] = []
+    for sentence in _split_sentences(_sanitize_line(raw_summary)):
+        cleaned = _strip_redundant_prefixes(_sanitize_line(sentence))
+        cleaned = _sanitize_line(cleaned)
+        if not cleaned or _looks_technical_line(cleaned):
+            continue
+        if len(cleaned) < 20:
+            continue
+        if not cleaned.endswith((".", "!", "?")):
+            cleaned = f"{cleaned}."
+        sentences.append(_truncate_sentence(cleaned, 260))
+
+    sentences = _dedupe_keep_order(sentences)
+
+    if len(sentences) < 2 and resolved:
+        line = _topic_sentence("По ответам кандидата удалось прояснить", resolved[0])
+        if line:
+            sentences.append(line)
+    if len(sentences) < 2 and new_info:
+        line = _topic_sentence("Появилась новая информация", new_info[0])
+        if line:
+            sentences.append(line)
+    if len(sentences) < 3 and unresolved:
+        line = _topic_sentence("Остаются вопросы, требующие уточнения", unresolved[0])
+        if line:
+            sentences.append(line)
+    if len(sentences) < 4 and follow_up:
+        line = _topic_sentence("На живом собеседовании важно проверить", follow_up[0])
+        if line:
+            sentences.append(line)
+
+    sentences = _dedupe_keep_order([_sanitize_line(s) for s in sentences if _sanitize_line(s)])
+    if not sentences:
+        sentences = [
+            "Кандидат завершил AI-собеседование.",
+            "На живом собеседовании стоит уточнить детали по ключевым темам анкеты.",
+        ]
+    if len(sentences) == 1:
+        sentences.append("На живом собеседовании стоит дополнительно проверить открытые вопросы по заявке.")
+
+    return " ".join(sentences[:4])[:_MAX_STRING_LEN]
+
+
+def normalize_resolution_summary_for_commission(summary: dict[str, Any]) -> dict[str, Any]:
+    """Remove technical residue and repetitive templates from resolution summary payload."""
+    resolved = _normalize_list_items(summary.get("resolvedPoints"), limit=8)
+    unresolved = _normalize_list_items(summary.get("unresolvedPoints"), limit=8)
+    new_info = _normalize_list_items(summary.get("newInformation"), limit=8)
+    follow_up = _normalize_list_items(summary.get("followUpFocus"), limit=8)
+    if not follow_up:
+        follow_up = _derive_follow_up_from_unresolved(unresolved, limit=4)
+
+    out = dict(summary)
+    out["resolvedPoints"] = resolved
+    out["unresolvedPoints"] = unresolved
+    out["newInformation"] = new_info
+    out["followUpFocus"] = follow_up
+    out["shortSummary"] = _normalize_short_summary(
+        str(summary.get("shortSummary") or ""),
+        resolved=resolved,
+        unresolved=unresolved,
+        new_info=new_info,
+        follow_up=follow_up,
+    )
+    return out
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _normalize_persisted_summary_if_needed(row: AIInterviewQuestionSet) -> bool:
+    if not isinstance(row.resolution_summary, dict):
+        return False
+    normalized = normalize_resolution_summary_for_commission(row.resolution_summary)
+    if _canonical_json(normalized) == _canonical_json(row.resolution_summary):
+        return False
+    row.resolution_summary = normalized
+    return True
 
 
 def _compact_context_for_summary(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -137,10 +292,10 @@ def _dedupe_non_empty(lines: list[str], *, limit: int = _MAX_LIST_ITEMS) -> list
 def _derive_follow_up_from_unresolved(unresolved: list[str], *, limit: int = 4) -> list[str]:
     out: list[str] = []
     for item in unresolved:
-        text = _short_text(item, max_len=180)
+        text = _short_text(item, max_len=180).rstrip(" .;:")
         if not text:
             continue
-        out.append(f"Уточнить на живом собеседовании: {text}")
+        out.append(text)
         if len(out) >= limit:
             break
     return out
@@ -202,7 +357,7 @@ def _build_fallback_resolution_summary(user_payload: dict[str, Any]) -> dict[str
         answer_len = len(answer)
         if answer_len >= 120:
             if r_desc:
-                resolved.append(f"Удалось уточнить: {r_desc}.")
+                resolved.append(f"Кандидат уточнил: {r_desc}.")
             elif q_text:
                 resolved.append(f"Кандидат дал развернутый ответ по теме «{q_text}».")
             else:
@@ -236,11 +391,11 @@ def _build_fallback_resolution_summary(user_payload: dict[str, Any]) -> dict[str
             continue
         severity = str(issue.get("severity") or "medium").lower()
         if severity == "high":
-            follow_up.append(f"Проверить критичный момент: {summary}.")
+            follow_up.append(f"Критично проверить: {summary}.")
         elif severity == "medium":
-            follow_up.append(f"Уточнить важный момент: {summary}.")
+            follow_up.append(f"Уточнить: {summary}.")
         else:
-            follow_up.append(f"При возможности уточнить: {summary}.")
+            follow_up.append(summary)
 
     resolved = _dedupe_non_empty(resolved, limit=8)
     unresolved = _dedupe_non_empty(unresolved, limit=8)
@@ -257,7 +412,7 @@ def _build_fallback_resolution_summary(user_payload: dict[str, Any]) -> dict[str
     if total_q > 0:
         summary_parts.append(f"Кандидат завершил AI-собеседование и ответил на {total_q} вопросов.")
     if resolved:
-        summary_parts.append(f"Удалось уточнить ключевые моменты: {resolved[0].rstrip('.')}.")
+        summary_parts.append(f"По ответам кандидата прояснен важный момент: {resolved[0].rstrip('.')}.")
     if unresolved:
         summary_parts.append(f"Остаются вопросы для дополнительной проверки: {unresolved[0].rstrip('.')}.")
     if follow_up:
@@ -337,7 +492,7 @@ def generate_resolution_summary_llm(
         "promptVersion": RESOLUTION_SUMMARY_PROMPT_VERSION,
         "generationSource": "llm",
     }
-    return out
+    return normalize_resolution_summary_for_commission(out)
 
 
 def try_generate_and_persist_resolution_summary(
@@ -357,6 +512,7 @@ def try_generate_and_persist_resolution_summary(
     payload = _build_user_payload(db, application_id, row)
     try:
         summary = generate_resolution_summary_llm(payload, application_id=str(application_id))
+        summary = normalize_resolution_summary_for_commission(summary)
         row.resolution_summary = summary
         row.resolution_summary_error = None
         db.flush()
@@ -388,6 +544,7 @@ def try_generate_and_persist_resolution_summary(
             exc_info=True,
         )
         fallback_summary = _build_fallback_resolution_summary(payload)
+        fallback_summary = normalize_resolution_summary_for_commission(fallback_summary)
         row.resolution_summary = fallback_summary
         row.resolution_summary_error = safe[:2000]
         db.flush()
@@ -418,7 +575,10 @@ def ensure_resolution_summary_available(
     if target.candidate_completed_at is None:
         return target
     if isinstance(target.resolution_summary, dict):
+        if _normalize_persisted_summary_if_needed(target):
+            db.flush()
         return target
     try_generate_and_persist_resolution_summary(db, application_id, target)
+    _normalize_persisted_summary_if_needed(target)
     db.refresh(target)
     return target

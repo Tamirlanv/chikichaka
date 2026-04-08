@@ -61,8 +61,8 @@ def run_signals_aggregation(db: Session, *, application_id: UUID, run_id: UUID) 
     manual = bool(attention_flags)
     readiness = "partial_processing_ready" if manual else "ready_for_commission"
     explainability = [
-        "Сигналы агрегированы из algorithmic unit outputs.",
-        f"Dominant trait: {dominant or 'unknown'}.",
+        "Сигналы агрегированы по результатам проверок разделов заявки.",
+        f"Доминирующая характеристика теста: {dominant or 'не определена'}.",
     ]
 
     aggregate = data_check_repository.upsert_candidate_signals_aggregate(
